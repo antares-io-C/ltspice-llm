@@ -1,0 +1,13 @@
+* time-weighted mean fixture
+.param ton=1u
+.step param ton list 1u 3u
+V1 in 0 PULSE(0 5 0 10n 10n {ton} 10u)
+R1 in out 100
+C1 out 0 1n
+.tran 50u
+.save V(in) V(out)
+.meas tran in_avg AVG V(in)
+.meas tran in_rms RMS V(in)
+.meas tran out_avg AVG V(out)
+.meas tran out_rms RMS V(out)
+.end

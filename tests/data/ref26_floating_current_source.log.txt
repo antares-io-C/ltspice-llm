@@ -1,0 +1,35 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\floating_current_source.net
+Start Time: Thu Oct  1 14:58:12 2026
+solver = Normal
+Maximum thread count: 12
+tnom = 27
+temp = 27
+method = trap
+ERROR: Node n is floating and connected to current source B1
+
+Direct Newton iteration failed to find operating point.
+Starting Gmin stepping
+Gmin stepping failed to find operating point. Use".option gminsteps=0" to skip all Gmin stepping.
+Starting source stepping with srcstepmethod=0
+Starting source stepping with srcstepmethod=1
+Source stepping failed to find operating point. Use ".options srcsteps=0" to skip all source stepping.
+Starting Gmin stepping level 2
+Gmin stepping level 2 failed to find operating point. Use".option gminsteps=0" to skip all Gmin stepping.
+Starting source stepping with srcstepmethod=1, level 2
+Starting source stepping with srcstepmethod=0, level 2
+Source stepping level 2 failed to find operating point. Use ".options srcsteps=0" to skip all source stepping.
+Pseudo Transient failed to find the operating point at 5.001 µs
+Pseudo Transient level 2 failed to find the operating point at 5.001 µs
+Trouble finding operating point....skipping operating point for Transient analysis.
+
+Convergence Failure:  Time step too small; time = 2e-13, timestep = 0: trouble with instance "B1"
+
+Simulation Failed: Iteration limit reached
+
+Total elapsed time: 0.094 seconds.
+Total iterations: 80447
+
+Files loaded:
+C:\ws\floating_current_source.net
+

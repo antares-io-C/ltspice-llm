@@ -1,0 +1,30 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\four_thd.net
+Start Time: Thu Oct  1 14:58:11 2026
+solver = Normal
+Maximum thread count: 12
+tnom = 27
+temp = 27
+method = trap
+.OP point found by inspection.
+.OP point found by inspection.
+Total elapsed time: 0.043 seconds.
+Total iterations: 10230
+
+Files loaded:
+C:\ws\four_thd.net
+
+Fourier components of V(out)
+N-Period=5.00
+DC component:3.25932e-11
+
+Harmonic	Frequency	 Fourier 	Normalized	 Phase  	Normalized
+ Number 	  [Hz]   	Component	 Component	[degree]	Phase [deg]
+    1   	 1.000e+03	 1.118e+00	 1.000e+00	   90.00°	    0.00°
+    2   	 2.000e+03	 2.922e-10	 2.613e-10	   77.46°	  -12.54°
+    3   	 3.000e+03	 1.888e-01	 1.688e-01	   90.00°	    0.00°
+    4   	 4.000e+03	 5.732e-10	 5.127e-10	   84.17°	   -5.83°
+    5   	 5.000e+03	 4.302e-02	 3.848e-02	   90.00°	    0.00°
+Partial Harmonic Distortion: 17.317829%
+Total Harmonic Distortion:   17.342839%
+

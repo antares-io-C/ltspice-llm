@@ -1,0 +1,294 @@
+{
+  "use_case": "Genişletilmiş tasarım araçları: Monte Carlo verimi, tasarım güvenliği, şema oluşturma, takma anı analizi",
+  "source": [
+    "ltspice_llm/tools.py _extended_tool_schemas: simulate_monte_carlo, check_design_safety, create_or_replace_schematic, analyze_hotplug_transient açıklamaları",
+    "ADI SPICE-SYNTAX-REFERENCE: ilk satır başlıktır (nominal .param .end'in önüne)",
+    "GEMINI.md: inspect_schematic ile NC_xx doğrula; LTspice davranışını taklit eden fixture gerçek log olmalı",
+    "AN-88 s.1: takma anı seri RLC modeli; TI SLOD006 s.362: 6-12 nH/cm"
+  ],
+  "actions": [
+    {
+      "id": "M1",
+      "message": "Toleranslı elemanın değeri mc(nominal, tolerans) ile değiştirilir",
+      "proof": "trace",
+      "symbol": "adapter._set_element_value",
+      "source": "simulate_monte_carlo açıklaması: LTspice'ın native .step mc() motoru; LTspice yardımı mc(x,y)"
+    },
+    {
+      "id": "M2",
+      "message": "Nominal .param satırları başlık satırına değil .end'in önüne yazılır",
+      "proof": "trace",
+      "symbol": "netlist.insert_before_end",
+      "source": "ADI SPICE-SYNTAX-REFERENCE 'First line: Always treated as a comment'"
+    },
+    {
+      "id": "M3",
+      "message": "Adımlı netlist LTspice'ta koşulur",
+      "proof": "trace",
+      "symbol": "adapter.LTSpiceAdapter.run_netlist",
+      "source": "simulate_monte_carlo açıklaması"
+    },
+    {
+      "id": "M4",
+      "message": "Verim, gerçek LTspice adım tablosunun satırlarından sayılır",
+      "proof": "boundary",
+      "source": "simulate_monte_carlo şeması target_specs: sınırlar dahil, başarısız adım geçmemiş sayılır"
+    },
+    {
+      "id": "M5",
+      "message": "Başarısız koşumda verim raporlanmaz",
+      "proof": "boundary",
+      "source": "tools.py simulate_monte_carlo: verim yalnızca res.success iken"
+    },
+    {
+      "id": "D1",
+      "message": "Devrenin LTspice logu okunur",
+      "proof": "trace",
+      "symbol": "parser.LogParser.parse_file",
+      "source": "check_design_safety açıklaması: simülasyon logundaki .meas sonuçları"
+    },
+    {
+      "id": "D2",
+      "message": "Ölçüm bileşene tam adla eşlenir (v_c10, C1'e sayılmaz)",
+      "proof": "boundary",
+      "source": "check_design_safety açıklaması: ölçüm adı kuralı"
+    },
+    {
+      "id": "D3",
+      "message": "Güvenlik denetimi simülasyon koşmaz",
+      "proof": "trace",
+      "symbol": "adapter.LTSpiceAdapter.run_netlist",
+      "source": "check_design_safety: mevcut logu değerlendirir"
+    },
+    {
+      "id": "D4",
+      "message": "Genel sonuç en kötü bileşenin durumudur (FAIL > MARGINAL)",
+      "proof": "boundary",
+      "source": "check_design_safety: FAIL > MARGINAL > UNCHECKED > PASS"
+    },
+    {
+      "id": "D5",
+      "message": "Ölçümü olmayan bileşen geçmiş sayılmaz",
+      "proof": "boundary",
+      "source": "check_design_safety açıklaması: ölçümü olmayan bileşen UNCHECKED, genel sonuç INCOMPLETE"
+    },
+    {
+      "id": "S1",
+      "message": "Şema sözlükten kurulup cp1252 .asc olarak kaydedilir",
+      "proof": "trace",
+      "symbol": "schematic.AscSchematic.from_dict",
+      "source": "create_or_replace_schematic şeması: AscSchematic.from_dict biçimi"
+    },
+    {
+      "id": "S2",
+      "message": "Bağlantı LTspice'ın kendi netlisteriyle doğrulanır",
+      "proof": "trace",
+      "symbol": "adapter.LTSpiceAdapter.inspect_schematic",
+      "source": "GEMINI.md: inspect_schematic ile NC_xx doğrula"
+    },
+    {
+      "id": "S3",
+      "message": "Kopuk pinli şema WARNING alır ve simüle edilmez",
+      "proof": "boundary",
+      "source": "create_or_replace_schematic açıklaması: kopuk pin ya da açık uçlu ağ varsa WARNING, simülasyon yok"
+    },
+    {
+      "id": "S4",
+      "message": "Bağlı şema bir kez simüle edilir",
+      "proof": "trace",
+      "symbol": "adapter.LTSpiceAdapter.run_netlist",
+      "source": "create_or_replace_schematic açıklaması: isteğe bağlı simüle eder"
+    },
+    {
+      "id": "H1",
+      "message": "Kablo endüktansı uzunluktan, SLOD006 aralığının üst ucuyla bulunur",
+      "proof": "trace",
+      "symbol": "parasitics.get_cable_parasitics",
+      "source": "TI SLOD006 s.362: 6-12 nH/cm"
+    },
+    {
+      "id": "H2",
+      "message": "Seri RLC tepesi ve sönüm önerisi hesaplanır",
+      "proof": "trace",
+      "symbol": "parasitics.analyze_hotplug_transient",
+      "source": "AN-88 s.1: L_OUT, C_IN ve toplu ESR seri rezonans devresi"
+    },
+    {
+      "id": "H3",
+      "message": "Sönüm önerisinin tepesi adım yanıtından hesaplanır",
+      "proof": "trace",
+      "symbol": "parasitics.hotplug_step_peak",
+      "source": "analyze_hotplug_transient belgesi: önerilen C_b + ESR ile ideal tepe"
+    },
+    {
+      "id": "H4",
+      "message": "Takma anı analizi saf hesaplamadır, LTspice koşmaz",
+      "proof": "trace",
+      "symbol": "adapter.LTSpiceAdapter.run_netlist",
+      "source": "tools.py handle_tool_call yorumu: analyze_hotplug_transient saf hesaplamadır"
+    }
+  ],
+  "scenarios": [
+    {
+      "test": "tests/test_tools_and_agent.py::test_monte_carlo_yield_checks_both_bounds",
+      "flow": "Basic",
+      "actions": [
+        "M1",
+        "M2",
+        "M3",
+        "M4"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "adapter._set_element_value",
+        "netlist.insert_before_end",
+        "adapter.LTSpiceAdapter.run_netlist"
+      ],
+      "evidence": {
+        "M4": "assert (y[\"passed_runs\"], y[\"total_runs\"]) == (expected, 5)"
+      },
+      "note": "Sahte olan yalnızca subprocess.Popen; log ve raw gerçek LTspice 26.1.1 kaydı (examples/14 mc). expected kayıttaki adım değerlerinden sayılır (5'te 2)."
+    },
+    {
+      "test": "tests/test_tools_and_agent.py::test_monte_carlo_reports_no_yield_for_a_failed_simulation",
+      "flow": "Error",
+      "actions": [
+        "M3",
+        "M5"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "adapter.LTSpiceAdapter.run_netlist"
+      ],
+      "evidence": {
+        "M5": "assert \"yield_analysis\" not in res"
+      }
+    },
+    {
+      "test": "tests/test_tools_and_agent.py::test_design_safety_overall_result_is_the_worst_component",
+      "flow": "Basic",
+      "actions": [
+        "D1",
+        "D3",
+        "D4"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "parser.LogParser.parse_file",
+        "tools._measured_stress"
+      ],
+      "forbidden": [
+        "adapter.LTSpiceAdapter.run_netlist"
+      ],
+      "counts": {
+        "tools._measured_stress": 2
+      },
+      "evidence": {
+        "D4": "assert res[\"overall_safety\"] == \"FAIL\""
+      }
+    },
+    {
+      "test": "tests/test_tools_and_agent.py::test_design_safety_never_passes_an_unmeasured_component",
+      "flow": "Alternative",
+      "actions": [
+        "D1",
+        "D3",
+        "D5"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "parser.LogParser.parse_file",
+        "tools._measured_stress"
+      ],
+      "forbidden": [
+        "adapter.LTSpiceAdapter.run_netlist"
+      ],
+      "evidence": {
+        "D5": "assert res[\"overall_safety\"] == \"INCOMPLETE\""
+      }
+    },
+    {
+      "test": "tests/test_tools_and_agent.py::test_design_safety_matches_whole_component_names",
+      "flow": "Alternative",
+      "actions": [
+        "D1",
+        "D2",
+        "D3"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "parser.LogParser.parse_file",
+        "tools._measured_stress"
+      ],
+      "forbidden": [
+        "adapter.LTSpiceAdapter.run_netlist"
+      ],
+      "evidence": {
+        "D2": "assert comps[\"C1\"][\"status\"] == \"UNCHECKED\" and comps[\"C1\"][\"measured_v_peak\"] is None"
+      }
+    },
+    {
+      "test": "tests/test_tools_and_agent.py::test_schematic_tool_does_not_simulate_a_schematic_with_an_open_pin",
+      "flow": "Error",
+      "actions": [
+        "S1",
+        "S2",
+        "S3"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "schematic.AscSchematic.from_dict",
+        "adapter.LTSpiceAdapter.inspect_schematic",
+        "adapter.LTSpiceAdapter.schematic_to_netlist"
+      ],
+      "forbidden": [
+        "adapter.LTSpiceAdapter.run_netlist"
+      ],
+      "evidence": {
+        "S3": "assert res[\"status\"] == \"WARNING\""
+      },
+      "note": "Netlister çıktısı gerçek LTspice 26.1.1 -netlist kaydı (ref26_sch_open_pin.net)."
+    },
+    {
+      "test": "tests/test_tools_and_agent.py::test_schematic_tool_simulates_a_connected_schematic_once",
+      "flow": "Basic",
+      "actions": [
+        "S1",
+        "S2",
+        "S4"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "schematic.AscSchematic.from_dict",
+        "adapter.LTSpiceAdapter.inspect_schematic",
+        "adapter.LTSpiceAdapter.run_netlist"
+      ],
+      "counts": {
+        "adapter.LTSpiceAdapter.run_netlist": 1
+      },
+      "evidence": {
+        "S4": "assert [cmd[1] for cmd, _ in launched] == [\"-b\"]  # tek simülasyon"
+      }
+    },
+    {
+      "test": "tests/test_tools_and_agent.py::test_tool_analyze_hotplug_transient",
+      "flow": "Basic",
+      "actions": [
+        "H1",
+        "H2",
+        "H3",
+        "H4"
+      ],
+      "sequence": [
+        "tools.handle_tool_call",
+        "parasitics.get_cable_parasitics",
+        "parasitics.analyze_hotplug_transient",
+        "parasitics.hotplug_step_peak"
+      ],
+      "forbidden": [
+        "adapter.LTSpiceAdapter.run_netlist",
+        "adapter.LTSpiceAdapter.__init__"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+* rc flow fixture
+V1 in 0 PULSE(0 5 0 1n 1n 1m 2m)
+R1 in out {r}
+C1 out 0 1u
+.step param r list 1k 2k
+.tran 0 3m 1m
+.save V(in) V(out)
+.meas tran v_max MAX V(out)
+.meas tran vr_max MAX V(in,out)
+.meas tran t_x WHEN V(out)=2.5 RISE=1
+.end

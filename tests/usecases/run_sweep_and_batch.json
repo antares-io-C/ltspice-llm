@@ -1,0 +1,45 @@
+{
+  "use_case": "Parametre taraması ve bağımsız devreler (run_sweep, run_batch)",
+  "source": [
+    "GEMINI.md 'Performans ve eşzamanlılık': parametre taraması için run_sweep (tek süreçte .step), bağımsız devreler için run_batch",
+    "GEMINI.md 'LTspice referans kuralları': .step'te en az iki farklı değer olmalı",
+    "docs/KILAVUZ.md 'Çalışma Alanı ve Eşzamanlılık': run_batch her işe ayrı alt dizin açar; koruma tüm koşumları sınırlar"
+  ],
+  "actions": [
+    {"id": "A1", "message": "Tarama tek LTspice sürecinde koşar (N ayrı run_netlist değil)", "proof": "trace",
+     "symbol": "adapter.LTSpiceAdapter._execute", "source": "GEMINI.md: run_sweep (tek süreçte .step)"},
+    {"id": "A2", "message": ".step param satırı netliste yazılır", "proof": "boundary",
+     "source": "docs/KILAVUZ.md 'Performans': LTspice'in kendi .step'i"},
+    {"id": "A3", "message": "Tek farklı değer LTspice'a gitmeden reddedilir", "proof": "boundary",
+     "source": "GEMINI.md: .step'te en az iki farklı değer olmalı"},
+    {"id": "A4", "message": "Her iş kendi adaptörüyle run_netlist'ten geçer", "proof": "trace",
+     "symbol": "adapter.LTSpiceAdapter.run_netlist", "source": "docs/KILAVUZ.md 'Çalışma Alanı ve Eşzamanlılık'"},
+    {"id": "A5", "message": "Her iş makine geneli bütçeden kira alır ve bırakır", "proof": "trace",
+     "symbol": "cpu_guard.CpuSlotPool.acquire", "source": "docs/KILAVUZ.md 'Çalışma Alanı ve Eşzamanlılık'"},
+    {"id": "A6", "message": "Sonuçlar giriş sırasıyla döner", "proof": "boundary",
+     "source": "ltspice_llm/adapter.py run_batch belgesi (API sözleşmesi)"}
+  ],
+  "scenarios": [
+    {"test": "tests/test_performance_api.py::test_run_sweep_accepts_numeric_values", "flow": "Basic",
+     "actions": ["A1", "A2"],
+     "sequence": ["adapter.LTSpiceAdapter.run_sweep", "adapter.LTSpiceAdapter.run_netlist",
+                  "adapter.LTSpiceAdapter._execute"],
+     "counts": {"adapter.LTSpiceAdapter.run_netlist": 1, "adapter.LTSpiceAdapter._execute": 1},
+     "evidence": {"A2": "assert \".step param R1 list 1 2.5\" in _written(tmp_path, \"sw\")"}},
+    {"test": "tests/test_performance_api.py::test_run_sweep_rejects_single_distinct_value_before_running", "flow": "Error",
+     "actions": ["A3"],
+     "sequence": ["adapter.LTSpiceAdapter.run_sweep"],
+     "forbidden": ["adapter.LTSpiceAdapter.run_netlist", "adapter.LTSpiceAdapter._execute"],
+     "evidence": {"A3": "assert fake_popen.calls == []"}},
+    {"test": "tests/test_performance_api.py::test_run_batch_returns_results_in_input_order", "flow": "Basic",
+     "actions": ["A4", "A5", "A6"],
+     "per_thread": true,
+     "sequence": ["adapter.LTSpiceAdapter.run_netlist", "cpu_guard.CpuSlotPool.acquire",
+                  "adapter.LTSpiceAdapter._execute", "cpu_guard.CpuLease.release"],
+     "counts": {"adapter.LTSpiceAdapter.run_batch": 1, "adapter.LTSpiceAdapter.run_netlist": 5,
+                "cpu_guard.CpuSlotPool.acquire": 5, "adapter.LTSpiceAdapter._execute": 5,
+                "cpu_guard.CpuLease.release": 5},
+     "evidence": {"A6": "assert [r.netlist_path.stem for r in results] == [\"c\" + str(i) for i in range(5)]"},
+     "note": "Dizi her işçi iş parçacığında ayrı denetlenir (per_thread)."}
+  ]
+}

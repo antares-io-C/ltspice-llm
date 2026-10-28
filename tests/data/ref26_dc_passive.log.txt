@@ -1,0 +1,6 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\dc_passive.net
+Start Time: Thu Oct  1 14:58:15 2026
+C:\ws\dc_passive.net(5): DC sweep source must be an independent source.
+.dc R1 1k 3k 1k
+    ^^

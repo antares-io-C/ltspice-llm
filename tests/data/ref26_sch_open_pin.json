@@ -1,0 +1,36 @@
+{
+ "symbols": [
+  {
+   "name": "voltage",
+   "x": 100,
+   "y": 200,
+   "inst_name": "V1",
+   "value": "5"
+  },
+  {
+   "name": "res",
+   "x": 300,
+   "y": 200,
+   "inst_name": "R1",
+   "value": "1k"
+  }
+ ],
+ "connections": [
+  {
+   "from_inst": "V1",
+   "from_pin": "+",
+   "to_inst": "R1",
+   "to_pin": "1"
+  }
+ ],
+ "grounds": [
+  [
+   100,
+   296
+  ]
+ ],
+ "directives": [
+  ".op",
+  ".meas op ir FIND I(R1)"
+ ]
+}

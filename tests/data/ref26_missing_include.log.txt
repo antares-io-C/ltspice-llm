@@ -1,0 +1,3 @@
+C:\ws\missing_include.net(4): File not found.
+.include does_not_exist.lib
+         ^^^^^^^^^^^^^^^^^^

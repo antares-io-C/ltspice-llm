@@ -1,0 +1,8 @@
+* stepped dc divider
+V1 in 0 1
+R1 in out {r}
+R2 out 0 1k
+.step param r list 1k 3k
+.dc V1 0 2 1
+.save V(out)
+.end

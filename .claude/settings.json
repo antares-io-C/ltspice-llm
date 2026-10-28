@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "PYTHONIOENCODING": "utf-8"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest *)",
+      "Bash(python scripts/check.py*)",
+      "PowerShell(python scripts/check.py*)"
+    ],
+    "deny": [
+      "Edit(**/*.asc)",
+      "Write(**/*.asc)",
+      "Edit(//**/*.asc)",
+      "Write(//**/*.asc)",
+      "Bash(git clean*)",
+      "PowerShell(git clean*)",
+      "Bash(git reset --hard*)",
+      "PowerShell(git reset --hard*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(python *)",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_ltspice_guard.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "Bash(pytest *)",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_ltspice_guard.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(python *)",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_ltspice_guard.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(pytest *)",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_ltspice_guard.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_tests.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop_gate.py\"",
+            "timeout": 180,
+            "statusMessage": "Stop kapısı: .asc bütünlüğü ve scripts/check.py (ruff + LTspice'sız testler)"
+          }
+        ]
+      }
+    ]
+  }
+}

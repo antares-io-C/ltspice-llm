@@ -1,0 +1,9 @@
+* recursive subckt
+V1 in 0 1
+X1 in 0 LOOP
+.subckt LOOP a b
+R1 a b 1k
+X2 a b LOOP
+.ends
+.op
+.end

@@ -1,0 +1,31 @@
+{
+  "use_case": "Sağlayıcıdan bağımsız ajan döngüsü (AutonomousCircuitAgent.run)",
+  "source": [
+    "docs/KILAVUZ.md 'Sağlayıcıdan bağımsız araç döngüsü': ajan araç çağrılarını yürütür, sonuçları geçmişe ekler ve model araç çağırmayı bırakana kadar döner; max_steps"
+  ],
+  "actions": [
+    {"id": "A1", "message": "Kullanıcı mesajı geçmişe eklenir", "proof": "trace",
+     "symbol": "circuit_agent.AutonomousCircuitAgent.add_user_message", "source": "docs/KILAVUZ.md 'Sağlayıcıdan bağımsız araç döngüsü'"},
+    {"id": "A2", "message": "Modelin istediği araç araç katmanında yürütülür", "proof": "trace",
+     "symbol": "tools.handle_tool_call", "source": "docs/KILAVUZ.md 'Sağlayıcıdan bağımsız araç döngüsü'"},
+    {"id": "A3", "message": "Araç sonucu geçmişe eklenir", "proof": "trace",
+     "symbol": "circuit_agent.AutonomousCircuitAgent.add_tool_result", "source": "docs/KILAVUZ.md 'Sağlayıcıdan bağımsız araç döngüsü'"},
+    {"id": "A4", "message": "Model araç çağırmayı bırakınca döngü biter", "proof": "boundary",
+     "source": "docs/KILAVUZ.md 'Sağlayıcıdan bağımsız araç döngüsü'"},
+    {"id": "A5", "message": "max_steps dolunca döngü durur", "proof": "boundary",
+     "source": "docs/KILAVUZ.md 'Sağlayıcıdan bağımsız araç döngüsü' (max_steps)"}
+  ],
+  "scenarios": [
+    {"test": "tests/test_tools_and_agent.py::test_run_loop_executes_tool_calls_until_model_answers", "flow": "Basic",
+     "actions": ["A1", "A2", "A3", "A4"],
+     "sequence": ["circuit_agent.AutonomousCircuitAgent.add_user_message", "tools.handle_tool_call",
+                  "circuit_agent.AutonomousCircuitAgent.add_tool_result"],
+     "counts": {"tools.handle_tool_call": 1},
+     "evidence": {"A4": "assert out == {\"finished\": True, \"steps\": 2, \"final_message\": \"bitti\"}"}},
+    {"test": "tests/test_tools_and_agent.py::test_run_loop_stops_at_max_steps", "flow": "Alternative",
+     "actions": ["A2", "A3", "A5"],
+     "sequence": ["tools.handle_tool_call", "circuit_agent.AutonomousCircuitAgent.add_tool_result"],
+     "counts": {"tools.handle_tool_call": 3, "circuit_agent.AutonomousCircuitAgent.add_tool_result": 3},
+     "evidence": {"A5": "assert out[\"finished\"] is False and out[\"steps\"] == 3"}}
+  ]
+}

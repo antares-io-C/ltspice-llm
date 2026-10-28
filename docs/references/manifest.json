@@ -1,0 +1,122 @@
+{
+  "_aciklama": "Dış kaynak listesi. fetch_references.py bu listeyi indirir (files/, git'e girmez), metnini çıkarır (text/) ve README.md'yi üretir. 'expect': belgenin ilk sayfalarında geçmesi gereken metin; yanlış belge inmesini yakalar. 'relates': projede ilgili yer.",
+  "categories": {
+    "ltspice": "LTspice ve SPICE yöntemi",
+    "power": "Güç: kompanzasyon, takma anı, LDO",
+    "analog": "Analog: op-amp, E serisi",
+    "pcb": "PCB: iz parazitikleri, dekuplaj, modül beslemesi"
+  },
+  "documents": [
+    {
+      "id": "adi-ltj-spice-differentiation",
+      "category": "ltspice",
+      "title": "SPICE Differentiation (Mike Engelhardt, LT Journal, Ocak 2015)",
+      "publisher": "Analog Devices",
+      "url": "https://www.analog.com/media/en/technical-documentation/lt-journal-article/ltjournal-v24n4-01-df-spicedifferentiation-mikeengelhardt.pdf",
+      "expect": "Differentiation",
+      "why": "LTspice yazarından Newton iterasyonu, seyrek matris ve örtük integrasyon; trapez çınlaması (adımdan adıma salınım, s.3), Gear'ın yapay sönümü ve modified trap (s.4–6). LTspice 26'da `.options method` varsayılanı `trap`; modified trap yalnızca kaydedilen dalga formunu sonradan düzeltir (yerel yardım: integrationmethods.htm, options--setsimulatoroptions.htm).",
+      "relates": "GEMINI.md 'method=gear' kuralı"
+    },
+    {
+      "id": "ngspice-manual",
+      "category": "ltspice",
+      "title": "Ngspice User's Manual",
+      "publisher": "ngspice projesi",
+      "url": "https://ngspice.sourceforge.io/docs/ngspice-manual.pdf",
+      "expect": "Ngspice",
+      "why": "Berkeley SPICE eleman ve model parametreleri (D, Q, M, BSIM), .model sözdizimi, yakınsama seçenekleri. LTspice'tan farklı yerler var: önce LTspice yardımına bak.",
+      "relates": "ltspice_llm/diagnostics.py, elle yazılan .model satırları"
+    },
+    {
+      "id": "adi-an149",
+      "category": "power",
+      "title": "AN149: Modeling and Loop Compensation Design of Switching Mode Power Supplies",
+      "publisher": "Analog Devices (Linear Technology)",
+      "url": "https://www.analog.com/media/en/technical-documentation/application-notes/an149fa.pdf",
+      "expect": "Loop Compensation",
+      "why": "Akım ve gerilim modlu SMPS küçük sinyal modeli, çevrim kazancı ölçümü ve kompanzasyon; LTspice FRA örnekleriyle birlikte kullan.",
+      "relates": "LTspice examples/Educational/FRA, LoopGain*.asc"
+    },
+    {
+      "id": "adi-an88",
+      "category": "power",
+      "title": "AN88: Ceramic Input Capacitors Can Cause Overvoltage Transients",
+      "publisher": "Analog Devices (Linear Technology)",
+      "url": "https://www.analog.com/media/en/technical-documentation/application-notes/an88f.pdf",
+      "expect": "Ceramic",
+      "why": "Kablo endüktansı + seramik giriş kondansatörü takma anında girişin iki katına kadar çıkan aşım üretir (s.1); elektrolitik/ESR ile sönümleme.",
+      "relates": "ltspice_llm/parasitics.py analyze_hotplug_transient, examples/15_hotplug_damping_validation.py"
+    },
+    {
+      "id": "ti-slva079",
+      "category": "power",
+      "title": "Understanding the Terms and Definitions of LDO Voltage Regulators (SLVA079)",
+      "publisher": "Texas Instruments",
+      "url": "https://www.ti.com/lit/pdf/slva079",
+      "expect": "LDO",
+      "why": "Dropout, Iq, PSRR, yük/hat regülasyonu tanımları; davranışsal LDO modelinin hangi parametreleri taşıması gerektiği.",
+      "relates": "GEMINI.md 'Davranışsal regülatör' kuralı"
+    },
+    {
+      "id": "ti-slod006",
+      "category": "analog",
+      "title": "Op Amps for Everyone (SLOD006B, Ron Mancini)",
+      "publisher": "Texas Instruments",
+      "url": "http://www.ti.com/lit/an/slod006b/slod006b.pdf",
+      "expect": "SLOD006B",
+      "why": "Op-amp temel kitabı: geri besleme, kararlılık, aktif filtre tasarımı (Butterworth/Bessel/Chebyshev tabloları), osilatörler. TI artık sunmuyor; 2011 Internet Archive kopyası.",
+      "relates": "ltspice_llm/parasitics.py get_cable_parasitics (s.362: 6-12 nH/cm)"
+    },
+    {
+      "id": "ti-slyw038",
+      "category": "analog",
+      "title": "Analog Engineer's Pocket Reference (SLYW038)",
+      "publisher": "Texas Instruments",
+      "url": "https://www.ti.com/lit/pdf/slyw038",
+      "expect": "Pocket Reference",
+      "why": "Birim dönüşümleri, E-serisi değerleri, RC/LC formülleri, gürültü ve ADC formülleri tek yerde.",
+      "relates": "ltspice_llm/quantizer.py (E-serisi)",
+      "manual": "ti.com ücretsiz myTI girişi istiyor. Bağlantıyı tarayıcıda aç, indir, aşağıdaki yola kaydet ve betiği yeniden çalıştır."
+    },
+    {
+      "id": "adi-mt101",
+      "category": "pcb",
+      "title": "MT-101: Decoupling Techniques",
+      "publisher": "Analog Devices",
+      "url": "https://www.analog.com/media/en/training-seminars/tutorials/MT-101.pdf",
+      "expect": "Decoupling",
+      "why": "Dekuplaj kondansatörü seçimi, yerleşimi, ESL ve ferrit kullanımı.",
+      "relates": "ltspice_llm/parasitics.py (s.6: NP0/C0G gerilim katsayısı)"
+    },
+    {
+      "id": "adi-mt094",
+      "category": "pcb",
+      "title": "MT-094: Microstrip and Stripline Design",
+      "publisher": "Analog Devices",
+      "url": "https://www.analog.com/media/en/training-seminars/tutorials/MT-094.pdf",
+      "expect": "Microstrip",
+      "why": "Microstrip karakteristik empedansı ve yayılma gecikmesi formülleri, geçerlilik aralıkları.",
+      "relates": "ltspice_llm/parasitics.py calculate_trace_parasitics"
+    },
+    {
+      "id": "adi-basic-linear-design-ch12",
+      "category": "pcb",
+      "title": "Basic Linear Design, Chapter 12: Printed Circuit Board Design Issues",
+      "publisher": "Analog Devices",
+      "url": "https://www.analog.com/media/en/training-seminars/design-handbooks/Basic-Linear-Design/Chapter12.pdf",
+      "expect": "Printed Circuit Board",
+      "why": "PCB iz direnci (bakır özdirenci, sac direnci), iz ve tel endüktansı, topraklama.",
+      "relates": "ltspice_llm/parasitics.py calculate_trace_parasitics (R_dc)"
+    },
+    {
+      "id": "ublox-neo-m8-him",
+      "category": "pcb",
+      "title": "NEO-M8 Hardware Integration Manual (UBX-13003557)",
+      "publisher": "u-blox",
+      "url": "https://content.u-blox.com/sites/default/files/NEO-M8_HardwareIntegrationManual_(UBX-13003557).pdf",
+      "expect": "NEO-M8",
+      "why": "Besleme tasarımı (VCC hattına bobin/direnç koyma uyarısı), anten ve RF yerleşimi, V_BCKP.",
+      "relates": "GEMINI.md datasheet doğrulama kuralı"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Proje içi geçici denemeler (bkz. GEMINI.md)
+.scratch/
+
+# LTspice çıktıları
+*.raw
+# Use case testlerinin yeniden oynattığı gerçek LTspice çıktıları (examples/14)
+!tests/data/*.raw
+*.log
+# LTspice 26'nın devre başına bıraktığı .meas önbelleği (SQLite); testlerin okuduğu gerçek kayıtlar hariç
+*.db
+!tests/data/*.db
+
+# Simülasyon raporları (betikler her koşumda yeniden üretir; bkz. GEMINI.md "Rapor kuralı")
+reports/
+
+# Claude Code kişisel ayarları (ortak olanlar .claude/settings.json ve CLAUDE.md'de)
+.claude/settings.local.json
+CLAUDE.local.md
+# Kullanıcı düzeyindeki SessionStart hook'unun her oturumda yeniden ürettiği bağlam (mutlak yollar içerir)
+CODEBASE.md
+# Hook'ların makineye özgü durumu (LTspice parmak izi, son yeşil test koşumu)
+.claude/hooks/.state/
+
+# Yerel sırlar (LLM API anahtarları vb.): kütüphane .env okumaz, yine de yanlışlıkla sahnelenmesin
+.env
+.env.*
+
+# Kişisel editör ayarları (mutlak yol içerebilir)
+.vscode/
+
+# İndirilen üretici belgeleri (kişisel/kurum içi kullanım, yeniden dağıtılmaz; bkz. docs/references/README.md)
+docs/references/files/
+docs/references/text/
+
+# Hypothesis örnek veritabanı
+.hypothesis/

@@ -1,0 +1,43 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\ref26_mean_pulse.net
+Start Time: Tue Oct  6 12:12:19 2026
+Options:threads=1
+
+.step ton=1e-06
+solver = Normal
+Maximum thread count: 1
+tnom = 27
+temp = 27
+method = trap
+.OP point found by inspection.
+.OP point found by inspection.
+
+.step ton=3e-06
+.OP point found by inspection.
+.OP point found by inspection.
+Total elapsed time: 0.031 seconds.
+Total iterations: 2208
+
+Files loaded:
+C:\ws\ref26_mean_pulse.net
+
+
+Measurement: in_avg
+  step	AVG(V(in))	FROM	TO
+     1	0.505000000011	0	5e-05
+     2	1.50500000002	0	5e-05
+
+Measurement: in_rms
+  step	RMS(V(in))	FROM	TO
+     1	1.58638861211	0	5e-05
+     2	2.74164777644	0	5e-05
+
+Measurement: out_avg
+  step	AVG(V(out))	FROM	TO
+     1	0.504999999903	0	5e-05
+     2	1.50500000491	0	5e-05
+
+Measurement: out_rms
+  step	RMS(V(out))	FROM	TO
+     1	1.5086738856	0	5e-05
+     2	2.69743240104	0	5e-05

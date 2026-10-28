@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=77.0"]  # license = "<SPDX ifadesi>" (PEP 639) setuptools 77.0'da geldi
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ltspice-llm"
+dynamic = ["version"]
+description = "Python adapter connecting LLMs with LTspice simulator for autonomous circuit design and analysis"
+authors = [{ name = "ltspice-llm contributors" }]
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+dependencies = [
+    "spicelib>=1.6.0",
+    "numpy>=1.20.0",
+    "matplotlib>=3.5.0",
+    "scipy>=1.7.0",  # optimize_multi_parameters: Nelder-Mead 'bounds' 1.7.0'da geldi (SciPy 1.7.0 release notes)
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-timeout>=2.4",
+    "hypothesis>=6.150",
+    "ruff>=0.16",
+    "mypy>=1.19",
+]
+
+[project.scripts]
+ltspice-designer = "interactive_designer:main"
+
+[project.urls]
+Homepage = "https://github.com/antares-io-C/ltspice-llm"
+Issues = "https://github.com/antares-io-C/ltspice-llm/issues"
+Changelog = "https://github.com/antares-io-C/ltspice-llm/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["ltspice_llm"]
+py-modules = ["interactive_designer"]
+
+[tool.setuptools.dynamic]
+version = { attr = "ltspice_llm.__version__" }
+
+[tool.setuptools.package-data]
+ltspice_llm = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Yanlış yazılmış ayar/marker hata verir; beklenmedik geçen xfail hata sayılır.
+addopts = ["--strict-config", "--strict-markers"]
+markers = [
+    "examples: örnek betiği LTspice ile kendi sürecinde uçtan uca koşar (yavaş; -m 'not examples' ile atlanır)",
+]
+xfail_strict = true
+# Uyarılar birikmesin: kapatılmayan dosya/süreç (ResourceWarning) testi kırar.
+filterwarnings = ["error"]
+# Takılan bir test (sahte LTspice, alt süreç) Stop kapısını ve ajanı kilitlemesin (pytest-timeout).
+timeout = 120
+
+[tool.coverage.run]
+source = ["ltspice_llm"]
+branch = true
+
+# Yalnızca hata yakalayan kurallar (kullanılmayan import/değişken, tanımsız ad, bugbear). Biçim ve stil
+# kuralları bilerek kapalı: kod tabanını yeniden biçimlemenin getirisi ölçümde düşük çıktı.
+[tool.ruff]
+line-length = 120
+extend-exclude = [".scratch", "reports", "docs/references/files", "docs/references/text"]
+
+[tool.ruff.lint]
+select = ["F", "B"]
+# zip(strict=) uzunlukları eşit olan dizilerde gürültü; davranışı değiştirmek ayrı bir iş.
+ignore = ["B905"]
+
+# Kalite kapısının types adımı (scripts/check.py): paket py.typed taşır, iki platform da denetlenir.
+[tool.mypy]
+files = ["ltspice_llm"]
+
+[[tool.mypy.overrides]]
+module = ["spicelib.*", "PyLTSpice.*", "scipy.*"]
+ignore_missing_imports = true

@@ -1,0 +1,6 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\missing_model.net
+Start Time: Thu Oct  1 14:58:16 2026
+C:\ws\missing_model.net(4): Undefined model "1n4148".
+D1 b 0 1N4148
+       ^^^^^^

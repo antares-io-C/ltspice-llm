@@ -1,0 +1,3 @@
+C:\ws\step_single.net(7): This results in only one step.
+.step param Rx list 1k
+      ^^^^^^^^^^^^^^^^

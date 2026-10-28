@@ -1,0 +1,6 @@
+# LTspice dosyaları satır sonları dahil baytı baytına saklanır (core.autocrlf ayarından bağımsız).
+# - tests/data: gerçek LTspice çıktıları. LTspice 26.1.1 logunda başlık satırları LF, .meas satırları CRLF ile
+#   biter; normalleştirme bu karışımı yok eder ve testler gerçek çıktıyı sınamaz (bkz. GEMINI.md "Test kuralları").
+# - .asc: LTspice'ın kendi biçimi (cp1252 / UTF-16LE, CRLF); bkz. GEMINI.md "LTspice referans kuralları".
+tests/data/** -text
+*.asc -text

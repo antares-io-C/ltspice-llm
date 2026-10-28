@@ -1,0 +1,6 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\missing_subckt.net
+Start Time: Thu Oct  1 14:58:17 2026
+C:\ws\missing_subckt.net(4): This sub-circuit name is not defined.
+X1 b 0 FOOAMP
+       ^^^^^^

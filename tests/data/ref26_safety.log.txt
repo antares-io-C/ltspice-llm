@@ -1,0 +1,22 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\ref26_safety.net
+Start Time: Mon Oct  5 11:54:22 2026
+Options:threads=1
+solver = Normal
+Maximum thread count: 1
+tnom = 27
+temp = 27
+method = trap
+Direct Newton iteration succeeded in finding operating point.
+Total elapsed time: 0.020 seconds.
+Total iterations: 2086
+
+Files loaded:
+C:\ws\ref26_safety.net
+
+v_c10: MAX(V(a))=30 FROM 0 TO 0.001
+vhalf_c10: MAX(V(b))=15 FROM 0 TO 0.001
+pavg_r1: AVG(V(a,b)*I(R1))=0.224999994971 FROM 0 TO 0.001
+v_d1: MAX(V(a))=30 FROM 0 TO 0.001
+v_q1: MAX(V(a))=30 FROM 0 TO 0.001
+v_c11: MIN(V(c))=-30 FROM 0 TO 0.001

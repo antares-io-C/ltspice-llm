@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 290.5 64" width="363.12" height="80" role="img" aria-labelledby="title">
+  <title id="title">ltspice-llm</title>
+  <!-- Braces işareti + ltspice-llm yazısı (yazı tipi değil, yol). koyu zemin için. -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="5">
+    <path stroke="#E6EDF3" d="M22 9C16 9 15 12 15 17V26C15 30 13 32 9 32C13 32 15 34 15 38V47C15 52 16 55 22 55"/>
+    <path stroke="#E6EDF3" d="M42 9C48 9 49 12 49 17V26C49 30 51 32 55 32C51 32 49 34 49 38V47C49 52 48 55 42 55"/>
+    <path stroke="#2CC4CF" d="M21 32C24.8 24 28.2 24 32 32S39.2 40 43 32"/>
+  </g>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.5" transform="translate(80 44)">
+    <path stroke="#E6EDF3" d="M2.25 -31.75V-2.25M15.5 -28.75V-2.25M10.75 -21.75H21.25M41.69 -18.94A6 4.88 0 1 0 36.25 -12A6 4.88 0 1 1 30.81 -5.06M51.75 -21.75V7.75M51.75 -12A9.75 9.75 0 1 1 71.25 -12A9.75 9.75 0 1 1 51.75 -12M80.75 -21.75V-2.25M107.47 -18.27A9.75 9.75 0 1 0 107.47 -5.73M115.75 -12H135.25A9.75 9.75 0 1 0 132.97 -5.73M144.25 -11.5H151.25"/>
+    <circle fill="#E6EDF3" stroke="none" cx="80.75" cy="-30.5" r="2.75"/>
+    <path stroke="#2CC4CF" d="M160.25 -31.75V-2.25M170.25 -31.75V-2.25M180.25 -2.25V-21.75M180.25 -15.25A6.5 6.5 0 0 1 193.25 -15.25V-2.25M193.25 -15.25A6.5 6.5 0 0 1 206.25 -15.25V-2.25"/>
+  </g>
+</svg>

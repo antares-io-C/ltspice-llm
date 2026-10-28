@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+# GITHUB_TOKEN yalnızca okur: iş akışı depoya yazmaz (fork'tan gelen PR'lar zaten salt okunur token alır).
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12", "3.14"]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONIOENCODING: utf-8
+      HYPOTHESIS_PROFILE: ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      # Yereldeki ve Claude Code Stop hook'undaki kapının aynısı: .asc bütünlüğü, ruff (F, B), testler.
+      # CI'da LTspice kurulu olmadığı için LTspice gerektiren testler kendiliğinden atlanır.
+      - name: Quality gate
+        run: python scripts/check.py --cov

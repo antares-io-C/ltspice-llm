@@ -1,0 +1,18 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\ref26_step_dc_binary.net
+Start Time: Tue Oct  6 14:56:20 2026
+Options:threads=1
+solver = Normal
+Maximum thread count: 1
+tnom = 27
+temp = 27
+method = trap
+.OP point found by inspection.
+.step r=1000
+.step r=3000
+Total elapsed time: 0.023 seconds.
+Total iterations: 4
+
+Files loaded:
+C:\ws\ref26_step_dc_binary.net
+

@@ -1,0 +1,6 @@
+C:\ws\step_no_param_kw.net(7): Expected "(" here.
+.step Rx 1k 3k 1k
+        ^^^^^^^^^
+C:\ws\step_no_param_kw.net(7): Expected device instantiation or directive here.
+.step Rx 1k 3k 1k
+^^^^^^^^^^^^^^^^^

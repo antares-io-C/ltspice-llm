@@ -1,0 +1,7 @@
+* rc ac fixture
+V1 in 0 AC 1
+R1 in out 1k
+C1 out 0 159n
+.ac dec 10 10 100k
+.save V(in) V(out)
+.end

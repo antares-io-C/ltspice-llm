@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="title">
+  <title id="title">ltspice-llm</title>
+  <!-- Braces, karo: favicon/avatar; açık ve koyu zeminde aynı dosya. -->
+  <rect width="64" height="64" rx="14" fill="#14222D"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="5" transform="translate(6.4 6.4) scale(0.8)">
+    <path stroke="#E6EDF3" d="M22 9C16 9 15 12 15 17V26C15 30 13 32 9 32C13 32 15 34 15 38V47C15 52 16 55 22 55"/>
+    <path stroke="#E6EDF3" d="M42 9C48 9 49 12 49 17V26C49 30 51 32 55 32C51 32 49 34 49 38V47C49 52 48 55 42 55"/>
+    <path stroke="#2CC4CF" d="M21 32C24.8 24 28.2 24 32 32S39.2 40 43 32"/>
+  </g>
+</svg>

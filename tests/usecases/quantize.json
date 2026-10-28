@@ -1,0 +1,26 @@
+{
+  "use_case": "E serisi kuantalama aracı (quantize_parameters)",
+  "source": [
+    "docs/KILAVUZ.md 'Özellikler': quantize_parameters aracı; proje yapısı 'quantizer.py E-serisi komponent kuantalama motoru'",
+    "IEC 60063: 4.67k E12'de 4.7k'ya yuvarlanır"
+  ],
+  "actions": [
+    {"id": "A1", "message": "Araç katmanı isteği kuantalama motoruna iletir", "proof": "trace",
+     "symbol": "quantizer.quantize_circuit_parameters",
+     "source": "docs/KILAVUZ.md 'Özellikler' (quantize_parameters); quantize_circuit_parameters belgesi: parametreleri standart değerlere yuvarlar"},
+    {"id": "A2", "message": "Değer E serisindeki standart değere yuvarlanır", "proof": "trace",
+     "symbol": "quantizer.snap_to_e_series",
+     "source": "snap_to_e_series belgesi (E serisine yuvarlama); sembol adları koddan, sıra belgeden"},
+    {"id": "A3", "message": "Saf hesaplamadır: LTspice gerekmez, simülasyon koşmaz", "proof": "boundary",
+     "source": "ltspice_llm/tools.py handle_tool_call yorumu (LTspice kurulu olmasa da çalışır)"},
+    {"id": "A4", "message": "Sonuç IEC 60063 standart değeridir", "proof": "boundary", "source": "IEC 60063 (E12)"}
+  ],
+  "scenarios": [
+    {"test": "tests/test_tools_and_agent.py::test_quantize_tool_works_without_ltspice", "flow": "Basic",
+     "actions": ["A1", "A2", "A3", "A4"],
+     "sequence": ["tools.handle_tool_call", "quantizer.quantize_circuit_parameters", "quantizer.snap_to_e_series"],
+     "forbidden": ["adapter.LTSpiceAdapter.run_netlist"],
+     "evidence": {"A3": "assert res[\"status\"] == \"SUCCESS\"",
+                  "A4": "assert res[\"quantized_parameters\"][\"R\"] == \"4.7k\""}}
+  ]
+}

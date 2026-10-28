@@ -1,0 +1,11 @@
+* mc divider
+V1 in 0 10
+R1 in out 10k
+R2 out 0 10k
+V2 r 0 PWL(0 0 1m 10)
+.tran 1m
+.save V(out) V(r)
+.meas tran v_out AVG V(out)
+.meas tran t_hi WHEN V(r)*V(out)/10=5.1
+.meas tran v_never FIND V(out) WHEN V(out)=20
+.end

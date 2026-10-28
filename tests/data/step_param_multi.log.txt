@@ -1,0 +1,72 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\param_list_multi.net
+Start Time: Wed Sep 30 00:00:00 2026
+
+.step rv=1000 cv=1e-06
+solver = Normal
+Maximum thread count: 12
+tnom = 27
+temp = 27
+method = trap
+.OP point found by inspection.
+.OP point found by inspection.
+
+.step rv=2000 cv=1e-06
+.OP point found by inspection.
+.OP point found by inspection.
+
+.step rv=1000 cv=2e-06
+.OP point found by inspection.
+.OP point found by inspection.
+
+.step rv=2000 cv=2e-06
+.OP point found by inspection.
+.OP point found by inspection.
+Total elapsed time: 0.140 seconds.
+Total iterations: 2132
+
+Files loaded:
+C:\ws\param_list_multi.net
+
+
+Measurement: v_max
+  step	MAX(V(out))	FROM	TO
+     1	3.58834481239	0	0.003
+     2	2.69109368324	0	0.003
+     3	2.69109368324	0	0.003
+     4	1.77681708336	0	0.003
+
+Measurement: v_at
+  step	V(out)	at
+     1	3.16060311305	0.001
+     2	1.96734622411	0.001
+     3	1.96734622424	0.001
+     4	1.10599563504	0.001
+
+Measurement: t_x
+  step	V(out)=2
+     1	0.00051082681004
+     2	0.00247632375868
+     3	0.00247632375868
+     4	failed
+
+Measurement: v_pp
+  step	PP(V(out))	FROM	TO
+     1	3.58834481239	0	0.003
+     2	2.69109368324	0	0.003
+     3	2.69109368324	0	0.003
+     4	1.77681708336	0	0.003
+
+Measurement: v_avg
+  step	AVG(V(out))	FROM	TO
+     1	2.13721926316	0	0.003
+     2	1.53927170618	0	0.003
+     3	1.53927170626	0	0.003
+     4	0.964244795979	0	0.003
+
+Measurement: v_tr
+  step	v_tr	FROM	TO
+     1	0.000405465305986	0.000105361504054	0.00051082681004
+     2	0.00226560188748	0.000210721871198	0.00247632375868
+     3	0.00226560204803	0.000210721710655	0.00247632375868
+     4	failed

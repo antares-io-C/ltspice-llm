@@ -1,0 +1,3 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\ref26_crash_recursive.net
+Start Time: Tue Oct  6 09:05:45 2026

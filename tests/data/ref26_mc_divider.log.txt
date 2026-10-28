@@ -1,0 +1,47 @@
+LTspice 26.1.1 for Windows
+Circuit: C:\ws\ref26_mc_divider_mc.net
+Start Time: Mon Oct  5 11:54:21 2026
+Options:threads=1
+
+.step run=1
+solver = Normal
+Maximum thread count: 1
+tnom = 27
+temp = 27
+method = trap
+Direct Newton iteration succeeded in finding operating point.
+
+.step run=2
+Direct Newton iteration succeeded in finding operating point.
+
+.step run=3
+Direct Newton iteration succeeded in finding operating point.
+
+.step run=4
+Direct Newton iteration succeeded in finding operating point.
+
+.step run=5
+Direct Newton iteration succeeded in finding operating point.
+Total elapsed time: 0.054 seconds.
+Total iterations: 2085
+
+Files loaded:
+C:\ws\ref26_mc_divider_mc.net
+
+
+Measurement: v_out
+  step	AVG(V(out))	FROM	TO
+     1	5.17514133453	0	0.001
+     2	4.81480026245	0	0.001
+     3	5.06019878388	0	0.001
+     4	5.19931840897	0	0.001
+     5	4.99313926697	0	0.001
+
+Measurement: t_hi
+  step	V(r)*V(out)/10=5.1
+     1	0.000985480310228
+     2	failed
+     3	failed
+     4	0.000980897780468
+     5	failed
+Measurement "v_never" FAIL'ed

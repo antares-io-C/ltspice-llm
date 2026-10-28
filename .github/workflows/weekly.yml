@@ -1,0 +1,32 @@
+name: weekly
+
+# Her push'ta koşamayacak kadar uzun iki denetim (inceleme 2026-10-11: ikisi de CI'da hiç koşmuyordu):
+# - scripts/mutants.py: elle seçilmiş mutant kataloğu; sağ kalan ya da eskimiş mutant varsa kırmızı.
+# - scripts/isolation.py: her test kendi pytest sürecinde; önceki testin durumuna dayanan test varsa kırmızı.
+# İkisi de LTSPICE_EXE'yi var olmayan bir dosyaya yöneltir, LTspice gerektirmez.
+on:
+  schedule:
+    - cron: "0 3 * * 1"  # her pazartesi 03:00 UTC
+  workflow_dispatch:
+
+# GITHUB_TOKEN yalnızca okur: iş akışı depoya yazmaz.
+permissions:
+  contents: read
+
+jobs:
+  strength:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Mutant kataloğu
+        run: python scripts/mutants.py
+      - name: Test izolasyonu (bütün paket)
+        run: python scripts/isolation.py tests
