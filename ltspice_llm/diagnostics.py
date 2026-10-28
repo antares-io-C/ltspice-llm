@@ -206,7 +206,7 @@ def _convergence_summary(convergence: Dict[str, Any], scan: _LogScan) -> Dict[st
         for name, score in convergence.get(key, {}).items():
             if score >= CONVERGENCE_SCORE_THRESHOLD:
                 target.add(name)
-    summary = {
+    summary: Dict[str, Any] = {
         key: dict(list(convergence[key].items())[:5]) for key in ("device_scores", "node_scores") if key in convergence
     }
     for key in ("failure_time", "failure_timestep"):
