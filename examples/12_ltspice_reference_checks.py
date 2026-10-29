@@ -28,6 +28,7 @@ from ltspice_llm import (  # noqa: E402
     ReferenceDocs,
     SPICEDiagnostics,
     find_model_definitions,
+    find_symbol,
     format_spice_value,
     parse_spice_value,
     read_measure_db,
@@ -306,6 +307,70 @@ def main():
           and all(rejected for _, _, reads, rejected in access if reads),
           "; ".join(f"{label}{' (kontrol)' if control else ''}: LTspice {'okudu' if reads else 'okumadı'}, "
                     f"politika {'reddetti' if rej else 'geçirdi'}" for label, control, reads, rej in access))
+
+    # 10. Arama yolları (SIMULATION-COMMANDS-REFERENCE ".INCLUDE": "Relative paths resolve from the directory containing
+    #     the directive", ".LIB" Search order; SCHEMATIC-REFERENCE "Symbol and Library Search Paths": önce şemanın
+    #     klasörü). Tasarımcının klasörü: göreli .include'la bağlanan model dosyası ve yalnız orada duran bir sembol
+    #     (kütüphanedeki res.asy'nin kopyası). Bölücü: 10 V, üstte 1k, altta 2k -> V(out) = 10 * 2k / 3k (elle hesap).
+    proj = work / "proj"
+    proj.mkdir()
+    (proj / "load.lib").write_text(".subckt LOAD p n\nRl p n 2k\n.ends LOAD\n", encoding="utf-8")
+    shutil.copyfile(find_symbol("res"), proj / "myres.asy")
+    divider = ("* relative include\n.include load.lib\nV1 in 0 10\nR1 in out 1k\nX1 out 0 LOAD\n.op\n"
+               ".meas vout FIND V(out)\n.end\n")
+    (proj / "divider.net").write_text(divider, encoding="utf-8")
+    own_net = ad.run_netlist(proj / "divider.net", circuit_name="own_folder_net")
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(proj)  # LTspice çalışma klasörünü devralır; metin netlist çalışma alanına yazılır
+        from_cwd = run(divider, "cwd_include")
+    finally:
+        os.chdir(old_cwd)
+    v_own = own_net.measurements.get("vout")
+    check("Göreli .include netlistin klasöründen çözülür, çalışma klasöründen (CWD) değil; dosya yolu verilen netlist "
+          "kendi klasöründe koşar",
+          own_net.success and v_own is not None and math.isclose(v_own, 20 / 3, rel_tol=1e-6)
+          and not from_cwd.success and any("File not found" in e for e in from_cwd.errors),
+          f"kendi klasöründe V(out) = {v_own} V (10 * 2k / 3k = 6.6667); aynı netlist çalışma alanında, CWD proje "
+          f"klasöründeyken LTspice: {'; '.join(e.split(': ', 1)[-1] for e in from_cwd.errors[:1])}")
+
+    sch = AscSchematic(symbol_dirs=[proj])
+    v1 = sch.add_symbol("voltage", 0, 0, inst_name="V1", value="10")
+    r1 = sch.add_symbol("res", 160, 0, inst_name="R1", value="1k")
+    r2 = sch.add_symbol("myres", 320, 0, inst_name="R2", value="2k")
+    for sym, pin, net in ((v1, "+", "in"), (r1, "1", "in"), (r1, "2", "out"), (r2, "1", "out")):
+        sch.add_net_label(*sch.get_pin(sym, pin), net)
+    for sym, pin in ((v1, "-"), (r2, "2")):
+        sch.add_ground(*sch.get_pin(sym, pin))
+    sch.add_directive(0, 200, ".op")
+    sch.add_directive(0, 240, ".meas vout FIND V(out)")
+    own_asc = ad.run_netlist(sch.save(proj / "divider.asc"), circuit_name="own_folder_asc")
+    copied = run(sch.render(), "symbol_missing")  # metin: çalışma alanında koşar, myres orada yok
+    netlisted = copied.netlist_path.with_suffix(".net").read_text(encoding="cp1252", errors="replace")
+    dropped = "R2" not in [ln.split()[0] for ln in netlisted.splitlines() if ln.strip()]
+    try:
+        ad.inspect_schematic(sch.render(), treat_as_text=True)
+        refused = False
+    except RuntimeError:
+        refused = True
+    v_asc, v_copied = own_asc.measurements.get("vout"), copied.measurements.get("vout")
+    check("Bulunamayan sembol arayüzsüz koşumda (-b) uyarısız düşer ve koşum başarılı görünür; -netlist hata verir",
+          own_asc.success and v_asc is not None and math.isclose(v_asc, 20 / 3, rel_tol=1e-6)
+          and copied.success and dropped and copied.warnings == [] and refused,
+          f"şemanın klasöründe V(out) = {v_asc} V; çalışma alanında R2 netlistte {'yok' if dropped else 'var'}, "
+          f"V(out) = {v_copied} V, hata {len(copied.errors)}, uyarı {len(copied.warnings)}; inspect_schematic "
+          f"{'hata verdi' if refused else 'geçti'}")
+
+    op_step = run("* op step\nV1 in 0 10\nR1 in out {RT}\nR2 out 0 2k\n.param RT=1k\n.step param RT list 1k 2k\n"
+                  ".op\n.meas vout FIND V(out)\n.end\n", "op_step_meas")
+    op_log = LogParser.read_text(op_step.log_path) if op_step.log_path else ""
+    v_op = op_step.measurements.get("vout")
+    check(".op + .step: iki çalışma noktası çözülür ama .meas adım başına değil adım ekseninde bir kez yazılır",
+          op_step.success and op_log.count("Direct Newton iteration succeeded") == 2
+          and op_log.count("vout: ") == 1 and op_step.stepped_measurements == {}
+          and v_op is not None and math.isclose(v_op, 20 / 3, rel_tol=1e-6),
+          f"çalışma noktası {op_log.count('Direct Newton iteration succeeded')}, 'vout:' satırı "
+          f"{op_log.count('vout: ')}, değer {v_op} V (ilk adım, RT = 1k: 6.6667)")
 
     report = build_report(ad, docs, numbers, same, (late, early, capped, above), two, access)
     save_report(report, report_path("12_ltspice_reference_checks.html"))

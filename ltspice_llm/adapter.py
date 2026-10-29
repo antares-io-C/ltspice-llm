@@ -521,6 +521,40 @@ def _write_circuit_file(path: Path, content: str, asc_encoding: Optional[str] = 
         path.write_text(content, encoding="utf-8")
 
 
+def _staging_stem(stem: str) -> str:
+    """
+    Kaynağın klasöründe koşulan kopyanın adı (uzantısız). Süreç ve iş parçacığına özgüdür: kullanıcının dosyalarıyla
+    ve aynı klasördeki eşzamanlı koşumlarla çakışmaz (`schematic_to_netlist`'in geçici kopyasıyla aynı biçim).
+    """
+    return f"_ltspice_llm_{stem}_{os.getpid()}_{threading.get_ident()}"
+
+
+def _same_dir(a: Path, b: Path) -> bool:
+    """İki yol aynı klasör mü (büyük/küçük harf, kısa ad ve bağlantı farkı gözetmeden)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _collect_staged_outputs(staged: Path, target: Path, notes: List[str]) -> None:
+    """
+    Kaynağın klasöründe koşulan kopyayı ve LTspice'ın yanına yazdığı her dosyayı (.log, .raw, .op.raw, .db, şemadan
+    üretilen .net) çalışma alanındaki adlarına taşır; kullanıcının klasöründe geçici dosya kalmaz. Steplenmiş ``.raw``
+    yanındaki ``.log``'la birlikte taşınır: spicelib adımları oradan okur.
+    """
+    for path in staged.parent.glob(f"{staged.stem}.*"):
+        dest = target.with_name(target.stem + path.name[len(staged.stem):])
+        try:
+            os.replace(path, dest)
+        except OSError:  # başka bir sürücü: kopyala, sonra sil
+            try:
+                shutil.copyfile(path, dest)
+                path.unlink()
+            except OSError as ex:
+                notes.append(f"'{path}' çalışma alanına taşınamadı: {ex}")
+
+
 def _add_directive(content: str, line: str) -> str:
     """Bir SPICE direktifini ekler: netlistte ``.end`` öncesine, ``.asc`` şemada yeni bir TEXT satırı olarak."""
     if _is_asc_text(content):
@@ -912,11 +946,16 @@ class LTSpiceAdapter:
         treat_as_text: bool = False,
         save_signals: Optional[Sequence[str]] = None,
         _extra_directives: Optional[Sequence[str]] = None,
+        _run_dir: Optional[Path] = None,
     ) -> SimulationResult:
         """
         Bir netlist'i LTspice üzerinde headless modda çalıştırır.
 
-        :param netlist_content_or_path: Netlist dosya yolu veya doğrudan SPICE netlist metni.
+        :param netlist_content_or_path: Netlist dosya yolu veya doğrudan SPICE netlist metni. Dosya yolu verilen
+            devre (``.net`` ya da ``.asc``) LTspice arayüzündeki gibi kendi klasöründe koşulur: yanındaki model
+            dosyaları (göreli ``.include``/``.lib``) ve semboller bulunur. Koşum sırasında klasörde
+            ``_ltspice_llm_*`` adlı geçici bir kopya durur; kopya ve çıktıları bitince çalışma alanına taşınır, kaynak
+            dosyaya dokunulmaz. Klasöre yazılamazsa koşum çalışma alanında yapılır ve uyarı eklenir.
         :param circuit_name: Çalışma dosyasının adı. Aynı adla yapılan yeni koşum bu dosyaların üzerine
             yazar ve önceki sonucu geçersiz kılar (`SimulationResult.superseded`); farklı devrelerin
             ``.raw`` dosyalarını sonradan okuyacaksanız her birine ayrı ad verin.
@@ -950,7 +989,14 @@ class LTSpiceAdapter:
                 stale_path.unlink()
 
         run_notes: List[str] = []
-        errors, threads = self._run_ltspice(target_netlist, target_text, run_timeout, run_notes)
+        source_dir = (Path(netlist_content_or_path).resolve().parent
+                      if self._looks_like_path(netlist_content_or_path, treat_as_text) else _run_dir)
+        run_path = self._stage_next_to_source(target_netlist, source_dir, run_notes)
+        try:
+            errors, threads = self._run_ltspice(run_path, target_text, run_timeout, run_notes)
+        finally:
+            if run_path != target_netlist:
+                _collect_staged_outputs(run_path, target_netlist, run_notes)
         elapsed = time.perf_counter() - t0
         result = self._collect_result(target_netlist, target_text, param_app, errors, run_notes, summarize_raw)
         result.elapsed_seconds = elapsed
@@ -959,6 +1005,29 @@ class LTSpiceAdapter:
         if self.workspace_quota_mb is not None:  # kayıttan sonra: bu sonucun dosyaları korunur
             self.cleanup_workspace(max_total_mb=self.workspace_quota_mb)
         return result
+
+    def _stage_next_to_source(self, target_netlist: Path, source_dir: Optional[Path], notes: List[str]) -> Path:
+        """
+        LTspice'ın başlatılacağı netlist: kaynağın klasörü verilmiş ve çalışma alanı değilse hazırlanan netlistin oraya
+        yazılan kopyası, değilse ``target_netlist``. LTspice göreli ``.include``/``.lib`` yollarını netlistin
+        klasöründen, sembolleri ve hiyerarşik blokları şemanın klasöründen çözer (ADI SIMULATION-COMMANDS-REFERENCE
+        ".INCLUDE" ve ".LIB" Search order; SCHEMATIC-REFERENCE "Symbol and Library Search Paths"). Çalışma alanındaki
+        kopyada model dosyası "File not found" verir, bulunamayan sembol netlistten uyarısız düşer (LTspice 26.1.1,
+        examples/12). Klasöre yazılamazsa çalışma alanındaki dosya döner ve uyarı eklenir.
+        """
+        if source_dir is None or _same_dir(source_dir, self.workspace_dir):
+            return target_netlist
+        staged = source_dir / f"{_staging_stem(target_netlist.stem)}{target_netlist.suffix}"
+        try:
+            shutil.copyfile(target_netlist, staged)
+        except OSError as ex:
+            notes.append(
+                f"Devre kendi klasöründe koşulamadı ({source_dir}: {ex}); çalışma alanında koşuldu. Göreli "
+                ".include/.lib yolları bulunamayabilir; şemanın yanındaki bir sembol bulunamazsa LTspice onu "
+                "netlistten uyarısız düşürür."
+            )
+            return target_netlist
+        return staged
 
     def _run_ltspice(
         self, target_netlist: Path, target_text: str, run_timeout: float, run_notes: List[str]
@@ -1426,6 +1495,10 @@ class LTSpiceAdapter:
         value_list = distinct
 
         content = self._read_source(netlist_content_or_path, treat_as_text=treat_as_text)
+        # Dosya yolu verildiyse tarama da kaynağın klasöründe koşulur (bkz. run_netlist): şema orada netliste çevrilse
+        # bile netlistteki göreli .include/.lib yolları çalışma alanında bulunmaz.
+        source_dir = (Path(netlist_content_or_path).resolve().parent
+                      if self._looks_like_path(netlist_content_or_path, treat_as_text) else None)
         if content.lstrip().startswith("Version ") and "SHEET " in content:
             # Şemayı LTspice'ın kendi netlisteriyle (-netlist) metin netliste çevir
             content = self.schematic_to_netlist(
@@ -1451,6 +1524,7 @@ class LTSpiceAdapter:
             treat_as_text=True,
             save_signals=save_signals,
             _extra_directives=[step_line],
+            _run_dir=source_dir,
         )
 
     @staticmethod

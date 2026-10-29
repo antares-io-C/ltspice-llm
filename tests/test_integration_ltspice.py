@@ -7,13 +7,16 @@ FAIL'ed ölçümler, etkisiz parametre değişikliği, steplenmiş raw okuma) bi
 
 import base64
 import re
+import shutil
 
 import pytest
 
 from ltspice_llm import (
+    AscSchematic,
     CircuitOptimizer,
     LTSpiceAdapter,
     WaveformVisualizer,
+    find_symbol,
     handle_tool_call,
 )
 from ltspice_llm.parser import LogParser, RawParser, open_raw, raw_axis_values
@@ -403,3 +406,57 @@ def test_solver_thread_limit_reaches_ltspice(adapter, tmp_path):
     assert res.success and res.solver_threads == 1
     log = LogParser.read_text(res.log_path)
     assert re.findall(r"^Maximum thread count: (\d+)\s*$", log, re.MULTILINE) == ["1"]
+
+
+# --------------------------------------------------------------------- tasarımcının dosyası kendi klasöründe koşar
+# 10 V, üstte 1k, altta 2k: V(out) = 10 * 2k / (1k + 2k) = 6.6667 V (elle hesap). Eski hata (LTspice 26.1.1, 2026-10-29):
+# dosya yolu verilen devre çalışma alanına kopyalanıp orada koşuluyordu; göreli .include "File not found" verdi,
+# şemanın yanındaki sembol (R2) netlistten uyarısız düştü ve koşum V(out) = 10 V ile başarılı göründü.
+LOAD_LIB = ".subckt LOAD p n\nRl p n 2k\n.ends LOAD\n"
+DIVIDER_INCLUDE = ("* relative include\n.include load.lib\nV1 in 0 10\nR1 in out 1k\nX1 out 0 LOAD\n.op\n"
+                   ".meas vout FIND V(out)\n.end\n")
+
+
+def _divider_project(folder):
+    (folder / "load.lib").write_text(LOAD_LIB, encoding="ascii")
+    src = folder / "divider.net"
+    src.write_text(DIVIDER_INCLUDE, encoding="ascii")
+    return src
+
+
+def test_netlist_file_finds_the_model_file_next_to_it(adapter, tmp_path):
+    res = adapter.run_netlist(_divider_project(tmp_path), circuit_name="it_rel_include")
+    assert res.success, res.errors
+    assert res.measurements["vout"] == pytest.approx(20 / 3, rel=1e-6)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["divider.net", "load.lib"]  # LTspice'ın yazdığı her şey taşındı
+
+
+def test_sweep_of_a_netlist_file_finds_the_model_file_next_to_it(adapter, tmp_path):
+    """Üstteki direnç taranır: R1 = 1k -> 10 * 2k / 3k = 6.6667 V, R1 = 2k -> 10 * 2k / 4k = 5 V (elle hesap). Analiz
+    .tran: .op + .step'te LTspice .meas'i adım başına değil adım ekseninde bir kez yazar (26.1.1 logu:
+    ``vout: V(out)=6.66666650772 at 1000``)."""
+    src = _divider_project(tmp_path)
+    src.write_text(DIVIDER_INCLUDE.replace(".op\n.meas vout FIND V(out)", ".tran 1u\n.meas tran vout MAX V(out)"),
+                   encoding="ascii")
+    res = adapter.run_sweep(src, "R1", ["1k", "2k"], circuit_name="it_rel_include_sweep")
+    assert res.success, res.errors
+    assert [row["vout"] for row in res.stepped_measurements["vout"]] == pytest.approx([20 / 3, 5.0], rel=1e-6)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["divider.net", "load.lib"]
+
+
+def test_schematic_file_finds_the_symbol_next_to_it(adapter, tmp_path):
+    shutil.copyfile(find_symbol("res"), tmp_path / "myres.asy")  # tasarımcının sembolü: yalnız şemanın klasöründe
+    sch = AscSchematic(symbol_dirs=[tmp_path])
+    v1 = sch.add_symbol("voltage", 0, 0, inst_name="V1", value="10")
+    r1 = sch.add_symbol("res", 160, 0, inst_name="R1", value="1k")
+    r2 = sch.add_symbol("myres", 320, 0, inst_name="R2", value="2k")
+    for sym, pin, net in ((v1, "+", "in"), (r1, "1", "in"), (r1, "2", "out"), (r2, "1", "out")):
+        sch.add_net_label(*sch.get_pin(sym, pin), net)
+    for sym, pin in ((v1, "-"), (r2, "2")):
+        sch.add_ground(*sch.get_pin(sym, pin))
+    sch.add_directive(0, 200, ".op")
+    sch.add_directive(0, 240, ".meas vout FIND V(out)")
+    res = adapter.run_netlist(sch.save(tmp_path / "divider.asc"), circuit_name="it_local_symbol")
+    assert res.success, res.errors
+    assert res.measurements["vout"] == pytest.approx(20 / 3, rel=1e-6)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["divider.asc", "myres.asy"]

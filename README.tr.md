@@ -49,6 +49,21 @@ LLM ya da Python ──(devre)──► ltspice-llm ──► LTspice (arka plan
 
 Ayrıca: `.asc` şemalarını okuma, değiştirme, üretme ve bağlantısız pinleri bulma (bkz. [docs/KILAVUZ.md](docs/KILAVUZ.md)).
 
+## ltspice-llm mi, LTspice'ın kendi MCP sunucusu mu?
+
+LTspice 26.1.0'dan (Ağustos 2026) beri kendi MCP sunucusuyla geliyor: `ltspice-mcp-bridge.exe`. Claude Code, Claude
+Desktop, Cursor ya da GitHub Copilot gibi bir yapay zekâ asistanını LTspice'ta açık olan şemaya bağlar: asistan şemayı
+okur ve düzenler, simülasyonu koşar ve sonuçları siz izlerken okur; Windows'ta LTspice bu araçları sizin için ayarlayabilir
+(*Tools > Configure Third-Party AI Assistants*; LTspice yardımı, "Third Party AI Tools"). Ekrandaki tasarım hakkında bir
+asistanla konuşmak istiyorsanız onu kullanın.
+
+ltspice-llm, LTspice'ı pencere açmadan bir programın sürdüğü işler içindir:
+
+- Python betikleri ve CI işleri: çözücü iş parçacıklarını sınırlayarak örneklerin kilitlenmediği parametre taramaları
+  ve paralel koşumlar, hedefe göre değer ayarı, E serisine yuvarlama, yakınsama teşhisi ve HTML raporları.
+- Bir model API'si (Anthropic, OpenAI, Gemini ya da yerel bir model) üzerinde kendi ajanınız; ham `.log` ve `.raw`
+  dosyaları yerine her koşumun kısa JSON özeti.
+
 ## Hızlı başlangıç
 
 Gerekenler: Windows, Python 3.10 ya da üstü ve ayrıca kurulmuş bir LTspice
@@ -93,6 +108,16 @@ python examples/08_agent_loop_with_scripted_llm.py
 LTspice bilinen kurulum konumlarında kendiliğinden bulunur; başka bir yerdeyse yolunu `LTSPICE_EXE` ortam değişkenine
 yazın.
 
+### Kendi şemanız ya da netlistiniz
+
+```python
+result = LTSpiceAdapter().run_netlist(r"C:\tasarimlar\buck\buck.asc", circuit_name="buck")
+```
+
+Dosya yoluyla verilen devre, LTspice arayüzündeki gibi kendi klasöründe koşulur: yanındaki model dosyaları (göreli
+`.include` ve `.lib`) ve kendi sembolleriniz bulunur. Koşum sırasında klasörde `_ltspice_llm_*`
+adlı geçici bir kopya durur; koşum bitince kopya ve sonuçlar adaptörün çalışma alanına taşınır, dosyanız değişmez.
+
 ## Yapay zekâ ile kullanım
 
 ```python
@@ -108,7 +133,49 @@ result = handle_tool_call("create_or_replace_circuit",
 
 Döngüyü kendiniz yazmak istemezseniz `AutonomousCircuitAgent` modelinizi çağırır, istediği araçları çalıştırır ve
 model bitene kadar devam eder. Hiçbir sağlayıcıya kendisi bağlanmaz, API anahtarı okumaz; modeli siz bir fonksiyon
-olarak verirsiniz. Bkz. [examples/08_agent_loop_with_scripted_llm.py](examples/08_agent_loop_with_scripted_llm.py).
+olarak verirsiniz. Claude ile eksiksiz bir döngü (`pip install anthropic`, ardından `ANTHROPIC_API_KEY`):
+
+```python
+import anthropic
+
+from ltspice_llm import AutonomousCircuitAgent, get_ltspice_tool_schemas
+from ltspice_llm.providers import from_anthropic, to_anthropic
+
+client = anthropic.Anthropic()
+tools = get_ltspice_tool_schemas("anthropic")  # bir kez kurulur: araç listesi konuşma boyunca değişmemeli
+
+
+def llm(history, _tools):
+    system, messages = to_anthropic(history)
+    response = client.beta.messages.create(
+        model="claude-opus-5-5",
+        max_tokens=16000,
+        output_config={"effort": "high"},
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",  # Claude isteği reddederse API onu başka bir Claude modelinde yeniden dener
+        system=system,
+        tools=tools,
+        messages=messages,
+    )
+    if response.stop_reason == "refusal":
+        raise RuntimeError(f"Claude isteği reddetti: {response.stop_details}")
+    return from_anthropic(response)
+
+
+agent = AutonomousCircuitAgent()
+outcome = agent.run("1 kHz kesim frekanslı bir RC alçak geçiren filtre tasarla ve -3 dB noktasını LTspice'ta doğrula.",
+                    llm)
+print(outcome["final_message"])
+```
+
+`from_anthropic` Claude'un düşünme bloklarını saklar, `to_anthropic` önceki her turu değiştirmeden geri gönderir: güncel
+Claude modelleri düşünmeyi konuşmaya bağlar; düzenlenmiş bir geçmişte bu düşünme kaybolur ya da istek reddedilir. Aynı
+modülde OpenAI (`to_openai`, `from_openai`) ve Gemini (`to_gemini`, `from_gemini`) dönüştürücüleri de var. Döngüyü API
+anahtarı olmadan denemek için modeli betikten oynatan
+[examples/08_agent_loop_with_scripted_llm.py](examples/08_agent_loop_with_scripted_llm.py)'yi çalıştırın.
+
+Araç açıklamaları, araç sonuçlarındaki mesajlar ve ajanın varsayılan sistem istemi Türkçedir.
+`system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN` ajana bu istemin İngilizce çevirisini verir.
 
 ## Örnekler
 
@@ -141,7 +208,10 @@ python scripts/check.py --full   # testler ve örnekler gerçek LTspice ile
 - Araç katmanı (`handle_tool_call`, `AutonomousCircuitAgent`) dil modelinin netlistinde dosya yazan direktifleri
   (`.wave`, `.savebias`, `savestate`) ve çalışma alanı dışını okuyan yolları (mutlak yol, `..`, `%USERPROFILE%` gibi
   ortam değişkenleri) reddeder; kütüphane adları (`.lib standard.dio`) serbesttir. Girdi güvenilirse
-  `allow_file_access=True`. Doğrudan `LTSpiceAdapter.run_netlist` çağıran kod denetlenmez.
+  `allow_file_access=True`. Doğrudan `LTSpiceAdapter.run_netlist` çağıran kod denetlenmez. Modelin netlistleri
+  adaptörün çalışma alanında koşar (varsayılan: geçici klasörde `ltspice_llm_runs`); modelin bir üretici model dosyasını
+  kullanabilmesi için dosyayı bir klasöre koyup `handle_tool_call`'a ya da `AutonomousCircuitAgent`'a
+  `adapter=LTSpiceAdapter(workspace_dir=o_klasor)` verin.
 - Sağlayıcı şema biçimleri belgelerine göre üretilir; canlı API'lerle otomatik test edilmez.
 
 ## Daha fazlası

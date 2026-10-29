@@ -42,6 +42,10 @@ class AutonomousCircuitAgent:
 
     ``include_extended=True`` modele temel 10 aracın yanında şema çizimi, iz parazitikleri, hot-plug, SOA/derating ve
     Monte Carlo araçlarını da sunar (bkz. `get_ltspice_tool_schemas`).
+
+    ``system_prompt`` geçmişin ilk (system) mesajıdır; `reset` de onu kullanır. Verilmezse Türkçe
+    `CIRCUIT_DESIGNER_SYSTEM_PROMPT`; İngilizcesi `CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN`. Araç açıklamaları ve araç
+    sonuçlarındaki mesajlar istemden bağımsız olarak Türkçedir.
     """
 
     def __init__(
@@ -52,6 +56,7 @@ class AutonomousCircuitAgent:
         base_url: Optional[str] = None,
         include_extended: bool = False,
         allow_file_access: bool = False,
+        system_prompt: Optional[str] = None,
     ):
         self.adapter = adapter or LTSpiceAdapter()
         self.model_name = model_name
@@ -60,16 +65,13 @@ class AutonomousCircuitAgent:
         self.tools = get_ltspice_tool_schemas(include_extended=include_extended)
         #: False: modelin netlisti dosya yazamaz, çalışma alanı dışını okuyamaz (bkz. `handle_tool_call`)
         self.allow_file_access = allow_file_access
-        self.conversation_history: List[Dict[str, Any]] = [
-            {"role": "system", "content": CIRCUIT_DESIGNER_SYSTEM_PROMPT}
-        ]
+        self.system_prompt = CIRCUIT_DESIGNER_SYSTEM_PROMPT if system_prompt is None else system_prompt
+        self.conversation_history: List[Dict[str, Any]] = [{"role": "system", "content": self.system_prompt}]
         self.tool_log: List[Dict[str, Any]] = []
 
     def reset(self) -> None:
-        """Ajan konuşma geçmişini ve araç günlüğünü sıfırlar."""
-        self.conversation_history = [
-            {"role": "system", "content": CIRCUIT_DESIGNER_SYSTEM_PROMPT}
-        ]
+        """Ajan konuşma geçmişini ve araç günlüğünü sıfırlar (sistem istemi korunur)."""
+        self.conversation_history = [{"role": "system", "content": self.system_prompt}]
         self.tool_log = []
 
     def get_history(self) -> List[Dict[str, Any]]:
@@ -84,11 +86,19 @@ class AutonomousCircuitAgent:
         self,
         content: Optional[str] = None,
         tool_calls: Optional[List[Dict[str, Any]]] = None,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Geçmişe bir asistan mesajı ekler; model araç çağırdıysa `tool_calls` ile birlikte."""
+        """
+        Geçmişe bir asistan mesajı ekler; model araç çağırdıysa `tool_calls` ile birlikte. ``extra``'daki sağlayıcıya
+        özgü alanlar (``role``, ``content`` ve ``tool_calls`` dışındakiler; ör. `providers.from_anthropic`'in
+        ``anthropic_content``'i) mesajda aynen saklanır: dönüştürücü turu değiştirmeden geri yollar.
+        """
         message: Dict[str, Any] = {"role": "assistant", "content": content}
         if tool_calls:
             message["tool_calls"] = copy.deepcopy(tool_calls)
+        for key, value in (extra or {}).items():
+            if key not in ("role", "content", "tool_calls"):
+                message[key] = copy.deepcopy(value)
         self.conversation_history.append(message)
 
     def add_tool_result(
@@ -164,7 +174,8 @@ class AutonomousCircuitAgent:
         Kullanıcı mesajını geçmişe ekler; her adımda ``llm(mesajlar, araçlar)`` çağrılır. Model araç
         çağırırsa her biri `execute_tool` ile çalıştırılıp sonucu geçmişe eklenir ve döngü sürer; araç
         çağırmayan bir yanıt gelirse biter. ``llm`` fonksiyonunu çağıran, kendi sağlayıcı istemcisine
-        (mesaj/araç biçim dönüşümü dahil) bağlar.
+        (mesaj/araç biçim dönüşümü dahil) bağlar. Yanıttaki ``content`` ve ``tool_calls`` dışındaki alanlar (ör.
+        `providers.from_anthropic`'in ``anthropic_content``'i) asistan mesajında saklanır (`add_assistant_message`).
 
         :return: ``{"finished": bool, "steps": int, "final_message": str}``. ``max_steps`` dolduğunda
             model hâlâ araç çağırıyorsa ``finished`` False olur.
@@ -176,7 +187,7 @@ class AutonomousCircuitAgent:
             content = response.get("content")
             tool_calls = response.get("tool_calls") or []
             last_content = content or last_content
-            self.add_assistant_message(content, tool_calls)
+            self.add_assistant_message(content, tool_calls, extra=response)
 
             if not tool_calls:
                 return {"finished": True, "steps": step, "final_message": content or ""}

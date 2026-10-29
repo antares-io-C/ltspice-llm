@@ -200,6 +200,19 @@ devre, eksik dosya, iki analiz ve reddedilen `.step` mesajlarının hepsi `UNKNO
       4.2 çıktı. Karşılaştırma toleransı 1e-9 olunca okunan dosya okunmamış görünüyordu.
     - Dil modelinin yazdığı netlist böylece `%USERPROFILE%` ya da `%APPDATA%` altındaki bir dosyayı okutabiliyordu.
       `file_access_problems` artık `%VAR%` içeren her okuma yolunu reddediyor: değişkenin değeri denetim anında bilinmez.
+24. **Bulunamayan sembol arayüzsüz koşumda uyarısız düşüyor; göreli yollar çalışma klasöründen çözülmüyor (2026-10-29,
+    `examples/12` §10).**
+    - ADI belgeleri göreli `.include`'un direktifin bulunduğu dosyanın klasöründen, sembollerin önce şemanın
+      klasöründen arandığını yazıyor. Bulunamayan sembolde ne olduğunu yazmıyor.
+    - Ölçüm: şemanın yanındaki sembolle (`myres.asy`) 10 V / 1k / 2k bölücü. Şemanın klasöründe V(out) = 6.6667 V.
+      Şemanın metni çalışma alanında koşulunca LTspice `-b` R2'yi netliste koymadı: hata yok, uyarı yok, log temiz,
+      V(out) = 10 V ve koşum başarılı. Aynı şemada `-netlist` (`inspect_schematic`) netlist üretmedi ve hata verdi.
+    - Python'un çalışma klasörü (CWD) LTspice'a geçiyor ama göreli `.include`'u çözmüyor: CWD model dosyasının
+      klasöründeyken çalışma alanındaki netlist yine "File not found" verdi.
+    - `.op` ile `.step` birlikteyken iki çalışma noktası çözülüyor ama `.meas` bir kez, adım ekseninde yazılıyor
+      (`vout: V(out)=6.66666650772 at 1000`); adım başına ölçüm yok.
+    - Adaptör dosyayı çalışma alanına kopyalayıp orada koşuyordu: tasarımcının model dosyası "File not found" verdi,
+      şemanın yanındaki sembol sessizce düştü. Dosya yoluyla verilen devre artık kendi klasöründe koşuyor.
 
 ---
 
@@ -229,6 +242,7 @@ kopuk olabilir. Şema değiştikten sonra `inspect_schematic` çalıştırılmal
 | `adapter.py` (2026-10-06) | Çökme (NTSTATUS / sinyal) stderr boş olsa da hata; LTspice süreci Windows iş nesnesinde (Python'la birlikte ölür, WerFault'u beklemez) |
 | `system_prompts.py` | "LTspice kritik kuralları" bölümü eklendi. `.model 1N4148 D` örneği düzeltildi (`.lib standard.dio`) |
 | `netlist.py` (2026-10-28) | `file_access_problems` ortam değişkeni (`%VAR%`) içeren okuma yolunu reddediyor (§2.23) |
+| `adapter.py` (2026-10-29) | Dosya yoluyla verilen devre (`run_netlist`, `run_sweep`) kendi klasöründe koşuyor; kopya ve çıktıları çalışma alanına taşınıyor (§2.24) |
 
 ---
 
@@ -249,6 +263,8 @@ kopuk olabilir. Şema değiştikten sonra `inspect_schematic` çalıştırılmal
   kararlılık kanıtı değildir.
 - **Göreli eşikli WHEN kullan** (`=g0/sqrt(2)`). AC sonuçlarının birimi `meascplxfmt`'e bağlıdır: bode'da
   `mag()` dB, polar ve cartesian'da doğrusal. Kesin değer gerekiyorsa `read_measure_db(result.db_path)` kullan.
+- **Arayüzsüz koşumun "başarılı" sonucu, şemadaki her sembolün bulunduğunu göstermez** (§2.24): bulunamayan sembol
+  uyarısız düşer. Şüphede `inspect_schematic` kullan, o hata verir.
 - **Tabloda olmayan bir sembolün pin koordinatını tahmin etme.** `AscSchematic.get_pin` `.asy`'den okur
   (`get_pin(u1, "OUT")` ya da SpiceOrder ile `"5"`); yerel semboller için `AscSchematic(symbol_dirs=[...])`. Sonra
   yine `inspect_schematic`.

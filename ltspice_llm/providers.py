@@ -8,15 +8,15 @@ SDK gerektirmez: ``llm`` fonksiyonunu yazan kişi kendi istemcisini çağırır,
 Biçimler sağlayıcı belgelerinden (Anthropic Messages API "Tool use", OpenAI Chat Completions "Function calling",
 Gemini API REST "Function calling"); canlı API'yle otomatik test edilmez (tests/test_providers.py).
 
-Örnek (Anthropic SDK)::
+Örnek (Anthropic SDK; eksiksiz hâli README'de, "Using it with an AI model")::
 
-    from ltspice_llm import AutonomousCircuitAgent, get_ltspice_tool_schemas
-    from ltspice_llm.providers import from_anthropic, to_anthropic
+    client = anthropic.Anthropic()
+    tools = get_ltspice_tool_schemas("anthropic")  # bir kez: araç listesi konuşma boyunca değişmemeli
 
     def llm(history, _tools):
         system, messages = to_anthropic(history)
-        response = client.messages.create(model=MODEL, max_tokens=4096, system=system, messages=messages,
-                                          tools=get_ltspice_tool_schemas("anthropic"))
+        response = client.messages.create(model="claude-opus-5-5", max_tokens=16000,
+                                          system=system, tools=tools, messages=messages)
         return from_anthropic(response)
 
     AutonomousCircuitAgent().run("10 kHz alçak geçiren filtre tasarla", llm)
@@ -24,10 +24,15 @@ Gemini API REST "Function calling"); canlı API'yle otomatik test edilmez (tests
 
 from __future__ import annotations
 
+import copy
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
 Message = Dict[str, Any]
+
+#: Ajan biçiminin (``content``, ``tool_calls``) eksiksiz taşıdığı Messages API blokları; başka bir blok (``thinking``,
+#: ``redacted_thinking``, ``fallback`` ...) içeren tur `from_anthropic`'te olduğu gibi saklanır.
+_ANTHROPIC_PLAIN_BLOCKS = {"text", "tool_use"}
 
 
 def _arguments_dict(arguments: Any) -> Dict[str, Any]:
@@ -59,11 +64,40 @@ def _get(obj: Any, key: str, default: Any = None) -> Any:
     return getattr(obj, key, default)
 
 
+def _after_fallback(blocks: List[Any]) -> List[Any]:
+    """
+    Son ``fallback`` bloğundan önceki kısım, akışlı yanıtta çıktının ortasında reddeden modelin yarım çıktısıdır: geri
+    yollanırken yalnız metin ve eşli sunucu aracı blokları kalır; thinking, redacted_thinking, tool_use, eşsiz
+    ``server_tool_use`` ve tanınmayan iç bloklar atılır, sınırdan sonrası olduğu gibi kalır (Anthropic Claude API
+    belgeleri, "Refusals and fallback" -> "Echoing fallback turns back"). Akışsız yanıtta yarım çıktı hiç gelmez.
+    """
+    last = max((i for i, block in enumerate(blocks) if _get(block, "type") == "fallback"), default=-1)
+    if last <= 0:
+        return blocks
+    head = blocks[:last]
+    results = {_get(b, "tool_use_id") for b in head if str(_get(b, "type", "")).endswith("_tool_result")}
+    uses = {_get(b, "id") for b in head if _get(b, "type") == "server_tool_use"}
+    kept = [b for b in head
+            if _get(b, "type") == "text"
+            or (_get(b, "type") == "server_tool_use" and _get(b, "id") in results)
+            or (str(_get(b, "type", "")).endswith("_tool_result") and _get(b, "tool_use_id") in uses)]
+    return kept + blocks[last:]
+
+
+def _block_dict(block: Any) -> Dict[str, Any]:
+    """İçerik bloğu API'nin biçiminde: sözlüğün kopyası ya da SDK nesnesinin ``to_dict()``'i (API alan adlarıyla)."""
+    if isinstance(block, dict):
+        return copy.deepcopy(block)
+    to_dict = getattr(block, "to_dict", None)
+    return to_dict() if callable(to_dict) else dict(vars(block))
+
+
 # --------------------------------------------------------------------------- Anthropic
 def to_anthropic(history: List[Message]) -> Tuple[str, List[Message]]:
     """
     Ajan geçmişi -> ``(system, messages)``. Ardışık araç sonuçları tek ``user`` mesajında ``tool_result`` blokları
-    olur; mesajın ``images`` alanı aynı ``tool_result``'un içine ``image`` bloğu olarak girer.
+    olur; mesajın ``images`` alanı aynı ``tool_result``'un içine ``image`` bloğu olarak girer. `from_anthropic`'in
+    sakladığı tur (``anthropic_content``) değiştirilmeden gider.
     """
     messages: List[Message] = []
     for m in history:
@@ -73,6 +107,9 @@ def to_anthropic(history: List[Message]) -> Tuple[str, List[Message]]:
         if role == "user":
             messages.append({"role": "user", "content": m.get("content") or ""})
         elif role == "assistant":
+            if m.get("anthropic_content"):
+                messages.append({"role": "assistant", "content": copy.deepcopy(m["anthropic_content"])})
+                continue
             calls = m.get("tool_calls") or []
             if not calls:
                 messages.append({"role": "assistant", "content": m.get("content") or ""})
@@ -96,16 +133,28 @@ def to_anthropic(history: List[Message]) -> Tuple[str, List[Message]]:
 
 
 def from_anthropic(response: Any) -> Message:
-    """Messages API yanıtı (sözlük ya da SDK nesnesi) -> ``{"content", "tool_calls"}``."""
+    """
+    Messages API yanıtı (sözlük ya da SDK nesnesi) -> ``{"content", "tool_calls"}``.
+
+    Yanıtta metin ve araç çağrısı dışında bir blok varsa (``thinking``, ``redacted_thinking``, ``fallback`` ...) bütün
+    bloklar ``anthropic_content``'te API'nin biçiminde de saklanır ve `to_anthropic` o turu değiştirmeden geri yollar.
+    Claude Opus 5.5 ve Fable 5.1'de düşünme hep açıktır ve bloklar konuşmaya bağlıdır ("preserved thinking"): bir bloğu
+    atmak ya da önceki bir turu düzenlemek sonraki blokları geçersiz kılar (2026-08-31'den sonra açılan hesaplarda 400).
+    Çıktının ortasında başka modele geçilen turda sınırdan önceki araç çağrıları alınmaz (bkz. `_after_fallback`).
+    """
     texts: List[str] = []
     calls: List[Dict[str, Any]] = []
-    for block in _get(response, "content", []) or []:
+    blocks = _after_fallback(list(_get(response, "content", []) or []))
+    for block in blocks:
         kind = _get(block, "type")
         if kind == "text":
             texts.append(_get(block, "text", ""))
         elif kind == "tool_use":
             calls.append({"id": _get(block, "id"), "name": _get(block, "name"), "arguments": _get(block, "input", {})})
-    return {"content": "\n".join(texts) if texts else None, "tool_calls": calls}
+    reply: Message = {"content": "\n".join(texts) if texts else None, "tool_calls": calls}
+    if any(_get(block, "type") not in _ANTHROPIC_PLAIN_BLOCKS for block in blocks):
+        reply["anthropic_content"] = [_block_dict(block) for block in blocks]
+    return reply
 
 
 # --------------------------------------------------------------------------- OpenAI

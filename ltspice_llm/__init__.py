@@ -23,7 +23,7 @@ from .visualizer import WaveformVisualizer
 from .tools import convert_tool_schemas, get_ltspice_tool_schemas, handle_tool_call
 from .agent import CircuitOptimizer, OptimizationResult
 from .circuit_agent import AutonomousCircuitAgent
-from .system_prompts import CIRCUIT_DESIGNER_SYSTEM_PROMPT
+from .system_prompts import CIRCUIT_DESIGNER_SYSTEM_PROMPT, CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN
 from .quantizer import (
     quantize_circuit_parameters,
     snap_to_e_series,
@@ -90,6 +90,7 @@ __all__ = [
     "CircuitOptimizer",
     "AutonomousCircuitAgent",
     "CIRCUIT_DESIGNER_SYSTEM_PROMPT",
+    "CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN",
     "quantize_circuit_parameters",
     "snap_to_e_series",
     "parse_spice_value",

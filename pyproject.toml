@@ -29,8 +29,10 @@ dev = [
     "pytest-cov>=4.0.0",
     "pytest-timeout>=2.4",
     "hypothesis>=6.150",
-    "ruff>=0.16",
-    "mypy>=1.19",
+    # Üst sınır: yeni küçük sürüm yeni kural ya da çıkarım getirip CI'ı kendiliğinden kırabilir (ilk commit'in CI'ı
+    # mypy 2.4 ile kırmızıydı). Kapı mypy 1.19.1/2.4.1 ve ruff 0.16.10/0.17.3 ile temiz; yükseltmeyi elle yapın.
+    "ruff>=0.16,<0.18",
+    "mypy>=1.19,<2.5",
 ]
 
 [project.scripts]

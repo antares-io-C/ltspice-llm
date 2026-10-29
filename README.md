@@ -50,6 +50,21 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
 Also included: reading, editing and generating `.asc` schematics and finding unconnected pins
 (see [docs/KILAVUZ.md](docs/KILAVUZ.md), Turkish).
 
+## ltspice-llm or LTspice's own MCP server?
+
+Since version 26.1.0 (August 2026) LTspice ships its own MCP server, `ltspice-mcp-bridge.exe`. It connects an AI
+assistant such as Claude Code, Claude Desktop, Cursor or GitHub Copilot to the schematic you have open in LTspice: the
+assistant reads and edits it, runs the simulation and reads the results while you watch, and on Windows LTspice can
+set these tools up for you (*Tools > Configure Third-Party AI Assistants*; LTspice Help, "Third Party AI Tools"). If
+you want to talk to an assistant about the design on your screen, use that.
+
+ltspice-llm is for programs that drive LTspice without a window:
+
+- Python scripts and CI jobs: parameter sweeps and parallel runs that cap the solver threads so instances do not
+  livelock, closed-loop tuning, E-series rounding, convergence diagnosis and HTML reports.
+- Your own agent on a model API (Anthropic, OpenAI, Gemini, or a local model), with short JSON summaries of each run
+  instead of raw `.log` and `.raw` files.
+
 ## Quick start
 
 You need Windows, Python 3.10 or newer, and LTspice installed separately
@@ -93,6 +108,17 @@ python examples/08_agent_loop_with_scripted_llm.py
 LTspice is found in its usual install locations; if yours is elsewhere, set `LTSPICE_EXE` to its path. The examples
 print their progress in Turkish.
 
+### Your own schematic or netlist
+
+```python
+result = LTSpiceAdapter().run_netlist(r"C:\designs\buck\buck.asc", circuit_name="buck")
+```
+
+A circuit given as a file path runs in its own folder, as it does in the LTspice GUI, so the model files next to it
+(relative `.include` and `.lib`) and your own symbols are found. During the run a temporary
+`_ltspice_llm_*` copy sits in that folder; afterwards the copy and the results move to the adapter's workspace, and
+your file is not changed.
+
 ## Using it with an AI model
 
 ```python
@@ -108,7 +134,48 @@ result = handle_tool_call("create_or_replace_circuit",
 
 If you would rather not write the loop yourself, `AutonomousCircuitAgent` calls your model, runs the tools it asks
 for and keeps going until the model is done. It does not connect to any provider and reads no API keys; you pass the
-model in as a function. See [examples/08_agent_loop_with_scripted_llm.py](examples/08_agent_loop_with_scripted_llm.py).
+model in as a function. A complete loop with Claude (`pip install anthropic`, then set `ANTHROPIC_API_KEY`):
+
+```python
+import anthropic
+
+from ltspice_llm import CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN, AutonomousCircuitAgent, get_ltspice_tool_schemas
+from ltspice_llm.providers import from_anthropic, to_anthropic
+
+client = anthropic.Anthropic()
+tools = get_ltspice_tool_schemas("anthropic")  # built once: the tool list must not change during a conversation
+
+
+def llm(history, _tools):
+    system, messages = to_anthropic(history)
+    response = client.beta.messages.create(
+        model="claude-opus-5-5",
+        max_tokens=16000,
+        output_config={"effort": "high"},
+        betas=["server-side-fallback-2026-07-01"],
+        fallbacks="default",  # if Claude declines the request, the API retries it on another Claude model
+        system=system,
+        tools=tools,
+        messages=messages,
+    )
+    if response.stop_reason == "refusal":
+        raise RuntimeError(f"Claude declined the request: {response.stop_details}")
+    return from_anthropic(response)
+
+
+agent = AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)
+outcome = agent.run("Design an RC low-pass filter with a 1 kHz cutoff and check the -3 dB point in LTspice.", llm)
+print(outcome["final_message"])
+```
+
+`from_anthropic` keeps Claude's thinking blocks, and `to_anthropic` sends every earlier turn back unchanged: current
+Claude models tie their thinking to the conversation, and an edited history loses it or is rejected. The same module
+has converters for OpenAI (`to_openai`, `from_openai`) and Gemini (`to_gemini`, `from_gemini`). To try the loop without
+an API key, run [examples/08_agent_loop_with_scripted_llm.py](examples/08_agent_loop_with_scripted_llm.py), which
+plays the model from a script.
+
+The tool descriptions and the messages in tool results are in Turkish, and so is the agent's default system prompt.
+`system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN` gives the agent the English translation of that prompt.
 
 ## Examples
 
@@ -141,7 +208,10 @@ python scripts/check.py --full   # tests and examples against a real LTspice
 - The tool layer (`handle_tool_call`, `AutonomousCircuitAgent`) rejects directives in a language model's netlist
   that write files (`.wave`, `.savebias`, `savestate`) and paths that reach outside the workspace (absolute paths,
   `..`, environment variables such as `%USERPROFILE%`); library names (`.lib standard.dio`) are allowed. If the input is trusted, pass `allow_file_access=True`.
-  Code that calls `LTSpiceAdapter.run_netlist` directly is not checked.
+  Code that calls `LTSpiceAdapter.run_netlist` directly is not checked. The model's netlists run in the adapter's
+  workspace (by default `ltspice_llm_runs` in the temp folder); to let the model use a vendor model file, put the file
+  in a folder and pass `adapter=LTSpiceAdapter(workspace_dir=that_folder)` to `handle_tool_call` or
+  `AutonomousCircuitAgent`.
 - The provider schema formats are generated from the providers' documentation; they are not tested automatically
   against the live APIs.
 

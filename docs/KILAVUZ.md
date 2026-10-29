@@ -42,6 +42,7 @@ ltspice-llm'in ayrıntılı başvuru belgesi: özellikler, API örnekleri, perfo
 9. **Görsel Şema (.asc) Desteği ve LTspice Grafik Arayüzü (UI):**
    - Metin netlistleri yerine gerçek görsel şemaları (`.asc`) simüle eder, parametrelerini günceller ve üretir (`AscSchematic`). `.asc` dosyaları LTspice'ın kodlamasıyla (cp1252 / UTF-16LE) okunur ve yazılır; UTF-8 yazılmaz (LTspice UTF-8 `1µ`'yü `1Âµ` = 1 F okur).
    - `adapter.inspect_schematic(path)` şemayı LTspice'ın kendi netlisterıyla (`-netlist`) çevirir ve bağlantısız pinleri (`NC_xx`) ve açık uçlu ağları raporlar. Koordinat hesabıyla üretilen şemaları bununla doğrulayın. `run_sweep` `.asc` şemayı aynı yolla taranabilir netliste çevirir.
+   - Dosya yoluyla verilen devre (`run_netlist(path)`, `run_sweep(path, ...)`, `run_batch`'teki yol) LTspice arayüzündeki gibi **kendi klasöründe** koşulur: LTspice göreli `.include`/`.lib` yollarını netlistin klasöründen, sembolleri ve hiyerarşik blokları şemanın klasöründen çözer (ADI SIMULATION-COMMANDS-REFERENCE ".INCLUDE", ".LIB" Search order; SCHEMATIC-REFERENCE "Symbol and Library Search Paths"). Koşum sırasında klasörde `_ltspice_llm_<ad>_<pid>_<iş parçacığı>` adlı geçici bir kopya durur; kopya ve çıktıları (`.log`, `.raw`, `.op.raw`, `.db`, şemadan üretilen `.net`) bitince çalışma alanına `<circuit_name>.*` adıyla taşınır, kaynak dosyaya dokunulmaz. Eskiden kopya çalışma alanında koşuluyordu: tasarımcının model dosyası "File not found" verdi, şemanın yanındaki sembol netlistten uyarısız düştü ve koşum yanlış devreyle başarılı göründü (LTspice 26.1.1; `tests/test_integration_ltspice.py`). Klasöre yazılamazsa koşum çalışma alanında yapılır ve uyarı eklenir. Modelin netlist metni (araç katmanı) her zaman çalışma alanında koşar.
    - Tek bir fonksiyonla (`adapter.open_in_gui(path)`) devreyi LTspice grafik arayüzünde (GUI) açarak bileşen sembollerini, bağlantı hatlarını, etiketleri ve prob ölçümlerini görsel olarak incelemenizi sağlar.
 
 10. **ADI LTspice AI Reference Entegrasyonu:**
@@ -198,15 +199,13 @@ agent.get_history()     # sağlayıcıdan bağımsız mesaj geçmişi (add_user_
 
 Geçmişi sağlayıcı biçimine çevirmek için `ltspice_llm.providers`: `to_anthropic` (`system`, `messages`), `to_openai` (`messages`), `to_gemini` (`system_instruction`, `contents`); yanıtı ajan biçimine `from_anthropic`, `from_openai`, `from_gemini` (sözlük ya da SDK nesnesi). Grafik araçlarının `image_base64`'ü geçmişe metin olarak girmez, mesajın `images` alanında durur ve dönüştürücüler onu sağlayıcının görsel bloğuna çevirir (Anthropic `image`, OpenAI araç mesajlarından sonra `image_url`, Gemini `inlineData`). Biçimler sağlayıcı belgelerinden; canlı API'yle otomatik test edilmez.
 
-```python
-from ltspice_llm.providers import from_anthropic, to_anthropic
+Claude ile eksiksiz döngü (model kimliği, `effort`, reddedilen istek için `fallbacks`): [README.tr.md, "Yapay zekâ ile kullanım"](../README.tr.md#yapay-zekâ-ile-kullanım). Dikkat edilecekler:
 
-def llm(history, _tools):
-    system, messages = to_anthropic(history)
-    response = client.messages.create(model=MODEL, max_tokens=4096, system=system, messages=messages,
-                                      tools=get_ltspice_tool_schemas("anthropic", include_extended=True))
-    return from_anthropic(response)
-```
+- Claude Opus 5.5 ve Fable 5.1'de düşünme hep açıktır ve düşünme blokları konuşmaya bağlıdır ("preserved thinking"): her istek önceki turları değiştirmeden taşımalıdır; geçmişi düzenlenmiş istek 2026-08-31'den sonra açılan hesaplarda 400 alır (Anthropic Claude API belgeleri). `from_anthropic` metin ve araç çağrısı dışında blok içeren turu (`thinking`, `fallback` ...) `anthropic_content` alanında olduğu gibi saklar, ajan bu alanı geçmişte tutar ve `to_anthropic` turu aynen geri yollar. Eskiden düşünme blokları her turda atılıyordu: istek reddedilmez ama model önceki turların akıl yürütmesini göremez (belge bunu kalıcı bir desen değil, tek seferlik kurtarma sayar).
+- `fallbacks` ile Claude isteği reddederse API onu başka bir Claude modelinde yeniden dener; yanıtta bir `fallback` bloğu olur. Akışlı yanıtta model çıktının ortasında değişirse `from_anthropic` son `fallback` bloğundan önceki thinking, redacted_thinking ve tool_use bloklarını geri göndermez ve sınırdan önceki araç çağrısını ajana vermez; metin ve sınırdan sonrası aynen gider (Anthropic belgeleri, "Echoing fallback turns back"). Akışsız yanıtta reddedilen yarım çıktı hiç gelmez.
+- `tools` listesini bir kez kurun: konuşma ortasında değişen araç listesi de önceki düşünme bloklarını geçersiz kılar.
+- Ajanın varsayılan sistem istemi Türkçedir; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` İngilizce çevirisini verir. Araç açıklamaları ve araç sonuçlarındaki mesajlar istemden bağımsız olarak Türkçedir.
+- Genişletilmiş araçlar için ajanı `include_extended=True` ile kurun ve API'ye `get_ltspice_tool_schemas("anthropic", include_extended=True)` verin.
 
 Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo ve birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`.
 
@@ -433,6 +432,8 @@ yasak çağrıları ve çağrı sayılarını denetler. Hata ayıklama için gdb
 - `save_signals` ile budama yapıldığında `.meas` satırlarında geçen sinyaller otomatik korunur, ancak `.meas` dışında kalan bir sinyali sonradan çizdirmek isterseniz simülasyonu yeniden koşturmanız gerekir.
 - AC `.meas` sonuçlarının birimi `.options meascplxfmt`'e bağlıdır: varsayılan (bode) biçimde `mag()` dB, polar/cartesian'da doğrusal döner. Biçimden bağımsız kesin değer için `read_measure_db(result.db_path)` kullanın.
 - `inspect_schematic`/`schematic_to_netlist` yerel sembolleri bulabilmek için şemanın geçici bir kopyasını kendi klasörüne yazar ve hemen siler (LTspice 26.1.1'de `-I<yol>` anahtarı çalışmıyor). Klasör yazılamıyorsa kopya çalışma alanında çevrilir ve yalnızca standart semboller çözülür.
+- LTspice 26.1.1 arayüzsüz koşumda (`-b`) bulunamayan bir sembolü uyarısız atlar: o eleman netliste girmez, logda iz kalmaz ve koşum başarılı görünür. Dosya yoluyla verilen şema bu yüzden kendi klasöründe koşulur; klasöre yazılamayıp çalışma alanına düşülürse ya da sembol gerçekten yoksa sonuç yanlış devreye aittir. Şüphede `inspect_schematic` kullanın: aynı durumda netlist üretmez ve hata verir.
+- `.op` ile `.step` birlikteyken LTspice `.meas`'i adım başına değil adım ekseninde bir kez yazar (26.1.1 logu: `vout: V(out)=6.66666650772 at 1000`); adım başına ölçüm için `.tran` ya da `.dc` kullanın.
 - AC `.raw` özeti yalnızca genlik (magnitude) verir. Steplenmiş `.raw` özeti ilk 3 adımla, grafikler ilk 8 adımla sınırlıdır.
 - macOS (`LTspice.app`) ve `LTSPICE_EXE` ile Linux/Wine desteği koda eklenmiştir ancak bu ortamlarda denenmemiştir; testler yalnızca Windows + LTspice 26.1.1 üzerinde çalıştırılmıştır.
 - Araç katmanı LLM'in netlistini simülasyondan önce `netlist.file_access_problems` ile denetler (ADI belgelerindeki dosya erişimleri): dosya yazan `.wave`, `.savebias`, `.savestate` ve `.tran ... savestate` reddedilir; `.include`/`.lib`/`.loadstate`, `file=` ve `wavefile=` yalnızca mutlak yol, `~`, `..` ya da ortam değişkeni (`%VAR%`; LTspice 26.1.1 `.include` yolunda açıyor, `examples/12` S3) gösteriyorsa reddedilir. Parametre değerleri uygulandıktan sonraki metin denetlenir. Girdi güvenilirse `handle_tool_call(..., allow_file_access=True)` ya da `AutonomousCircuitAgent(allow_file_access=True)`. `LTSpiceAdapter.run_netlist`'i doğrudan çağıran kod denetlenmez.

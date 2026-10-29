@@ -85,6 +85,22 @@ def test_ltspice_crash_is_reported_with_its_exit_code(tmp_path, replay):
     assert not any("(.raw) üretilemedi" in e for e in res.errors)
 
 
+def test_crash_of_a_circuit_file_still_leaves_its_folder_clean(tmp_path, replay):
+    """Dosya yolu verilen devre kendi klasöründe koşar (run_netlist). LTspice çökse de geçici kopya ve log çalışma
+    alanına taşınır: tasarımcının klasöründe yalnız kendi dosyası kalır, çökme logu okunur (test-reviewer, 2026-10-29)."""
+    replay.outputs = {".log": DATA / "ref26_crash_recursive.log.txt"}
+    replay.returncode, replay.stderr = CRASH["returncode"], CRASH["stderr"]
+    src = tmp_path / "proj" / "crash.net"
+    src.parent.mkdir()
+    src.write_text(CRASH_NET, encoding="utf-8")
+    ad = _adapter(tmp_path)
+    res = ad.run_netlist(src, circuit_name="crash")
+    assert not res.success
+    assert sum("0xC00000FD" in e for e in res.errors) == 1
+    assert res.log_path == ad.workspace_dir / "crash.log"
+    assert sorted(p.name for p in src.parent.iterdir()) == ["crash.net"]
+
+
 @pytest.mark.parametrize("code, name", [
     (0xC0000005, "erişim ihlali"),        # "The instruction at 0x%p referenced memory at 0x%p." (ntdll)
     (0xC0000094, "tamsayı sıfıra bölme"),  # "{EXCEPTION} Integer division by zero." (ntdll)
@@ -198,9 +214,11 @@ def _job_process_count():
 @windows_only
 def test_execute_puts_the_ltspice_process_in_the_job(tmp_path):
     """Süreç bitmeden işe bağlanmalı: biten süreç bağlanamaz ve sayaç artmaz (test-reviewer ölçtü; eski sürümdeki
-    mock testi bunu göremiyordu)."""
+    mock testi bunu göremiyordu). Çocuk asıl yorumlayıcıdır: Windows venv'inin ``Scripts\\python.exe``'si bir
+    başlatıcıdır ve yorumlayıcıyı ikinci süreç olarak açar, sayaç 2 artar (2026-10-29 ölçümü: 81 -> 83)."""
+    interpreter = getattr(sys, "_base_executable", None) or sys.executable
     before = _job_process_count()
-    outcome = _adapter(tmp_path)._execute([sys.executable, "-c", "import time; time.sleep(0.2)"], 30, (), None)
+    outcome = _adapter(tmp_path)._execute([interpreter, "-c", "import time; time.sleep(0.2)"], 30, (), None)
     assert outcome.errors == []
     assert _job_process_count() == before + 1
 

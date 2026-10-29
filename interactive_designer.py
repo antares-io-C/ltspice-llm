@@ -1,8 +1,9 @@
 """
-Interactive AI Circuit Designer (CLI)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Interactive Circuit Tool (CLI)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Kullanıcının terminalden devre tasarlayabileceği, hazır şablonları koşturabileceği,
 parametreleri tune edebileceği ve grafikleri oluşturabileceği interaktif arayüz.
+Dil modeli kullanmaz: menü, bir modelin çağıracağı araçları (handle_tool_call) elle çağırır ve sonuçlarını gösterir.
 """
 
 import sys
@@ -19,8 +20,8 @@ from ltspice_llm import (
 def print_banner():
     print("""
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║                  ⚡ LTspice - AI Circuit Designer ⚡                     ║
-║         Büyük Dil Modelleri İçin Otonom Analog EDA Ajanı                  ║
+║                  ⚡ LTspice - Etkileşimli Devre Aracı ⚡                  ║
+║      ltspice-llm araçlarını elle çağıran menü (dil modeli kullanmaz)      ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
     """)
 

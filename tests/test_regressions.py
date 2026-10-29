@@ -28,7 +28,7 @@ from ltspice_llm import (
 import ltspice_llm.adapter as adapter_mod
 from ltspice_llm.adapter import _ANALYSIS_DIRECTIVE_RE, _set_param, sanitize_circuit_name
 from ltspice_llm.parser import open_raw, raw_axis_values
-from ltspice_llm.system_prompts import CIRCUIT_DESIGNER_SYSTEM_PROMPT
+from ltspice_llm.system_prompts import CIRCUIT_DESIGNER_SYSTEM_PROMPT, CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN
 
 
 @pytest.fixture
@@ -377,6 +377,51 @@ def test_system_prompt_only_mentions_real_tool_names():
     ))
     assert mentioned, "prompt araç adı içermiyor"
     assert mentioned <= tool_names, f"Şemada olmayan araçlar: {mentioned - tool_names}"
+
+
+def _code_spans(prompt):
+    return re.findall(r"`([^`\n]+)`", prompt)
+
+
+def test_english_system_prompt_keeps_every_directive_option_and_tool_of_the_turkish_one():
+    """İngilizce istem Türkçenin çevirisidir (kaynak: Türkçe istem): Türkçedeki her direktif ve seçenek kod parçası
+    (``.meas ...``, ``method=gear``, ``Rser=0`` ...) İngilizcede birebir geçer, iki istem aynı araçları anar."""
+    def technical(prompt):
+        return {s for s in _code_spans(prompt) if s.startswith(".") or "=" in s}
+
+    def tools(prompt):
+        return {s for s in _code_spans(prompt)
+                if re.fullmatch(r"(?:plot|get|list|modify|create|quantize|diagnose|optimize|search)_\w+", s)}
+
+    assert technical(CIRCUIT_DESIGNER_SYSTEM_PROMPT) - technical(CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN) == set()
+    assert tools(CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN) == tools(CIRCUIT_DESIGNER_SYSTEM_PROMPT)
+    assert tools(CIRCUIT_DESIGNER_SYSTEM_PROMPT) <= {t["name"] for t in get_ltspice_tool_schemas()}
+
+
+def test_english_system_prompt_differs_from_the_turkish_one_only_in_translated_examples():
+    """Kaynak: Türkçe istem. Bütün kod parçaları (komut, seçenek, örnek eleman satırı, sonuç alanı, araç adı) iki
+    istemde birebir aynıdır; yalnızca Türkçe sözcük taşıyan iki örnek çevrilir. Bir PULSE örneğindeki Trise/Tfall ya da
+    bir sonuç alanı adı çeviride değişirse model yanlış sözdizimi öğrenir (test-reviewer, 2026-10-29)."""
+    from collections import Counter
+
+    translated = {"D1 anot katot 1N4148": "D1 anode cathode 1N4148", "{ad}": "{name}"}
+    tr = Counter(_code_spans(CIRCUIT_DESIGNER_SYSTEM_PROMPT))
+    en = Counter(_code_spans(CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN))
+    assert tr - en == Counter(translated.keys())
+    assert en - tr == Counter(translated.values())
+
+
+def test_agent_uses_the_given_system_prompt_and_keeps_it_after_reset(adapter):
+    """Belge (AutonomousCircuitAgent): system_prompt geçmişin ilk mesajıdır, reset de onu kullanır; verilmezse Türkçe
+    varsayılan istem."""
+    expected = [{"role": "system", "content": CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN}]
+    agent = AutonomousCircuitAgent(adapter=adapter, system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)
+    assert agent.get_history() == expected
+    agent.add_user_message("Design a 10 kHz low-pass filter")
+    agent.reset()
+    assert agent.get_history() == expected
+    assert AutonomousCircuitAgent(adapter=adapter).get_history() == [
+        {"role": "system", "content": CIRCUIT_DESIGNER_SYSTEM_PROMPT}]
 
 
 # LTspice 26.1.1'in gerçek çıktısı: 1 kHz'te H = 1/(1+j) -> |H|=-3.01 dB, faz=-45°, re=0.5, im=-0.5

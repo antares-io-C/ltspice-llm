@@ -159,6 +159,77 @@ def test_agent_loop_through_the_anthropic_format(tmp_path):
     assert '"total_circuits": 0' in result["content"][0]["text"]
 
 
+# Anthropic "preserved thinking" (Claude Opus 5.5, Claude Fable 5.1; Claude API belgeleri, 2026-10-29): aynı modelle
+# devam ederken düşünme blokları API'ye değiştirilmeden geri gönderilir; bir bloğu atmak ya da önceki bir turu
+# düzenlemek sonraki blokları geçersiz kılar (2026-08-31'den sonra açılan hesaplarda 400). Bu modellerde düşünme hep
+# açıktır: her yanıtta (metni boş olsa da) imzalı bir thinking bloğu gelir.
+THINKING_TOOL_TURN = [
+    {"type": "thinking", "thinking": "", "signature": "imza-1"},
+    {"type": "text", "text": "Devreleri listeliyorum."},
+    {"type": "tool_use", "id": "t1", "name": "list_circuits", "input": {}},
+]
+
+
+def test_agent_history_sent_to_anthropic_is_append_only_with_thinking_blocks(tmp_path):
+    """Gerçek sınır: LLM API'si (sahte yanıtlar). İkinci istek birincinin mesajlarını aynen taşır, ardından modelin
+    turunu düşünme bloğu dahil değiştirmeden ve araç sonucunu ekler. Sonraki run() da aynı geçmişi sürdürür: araç
+    çağırmayan son tur da düşünme bloğuyla geri gider."""
+    import sys
+
+    from ltspice_llm import AutonomousCircuitAgent, LTSpiceAdapter
+
+    final_turn = [{"type": "thinking", "thinking": "", "signature": "imza-2"}, {"type": "text", "text": "Devre yok."}]
+    replies = [THINKING_TOOL_TURN, final_turn,
+               [{"type": "thinking", "thinking": "", "signature": "imza-3"}, {"type": "text", "text": "Tamam."}]]
+    requests = []
+
+    def llm(history, _tools):
+        requests.append(to_anthropic(history)[1])
+        return from_anthropic({"content": replies[len(requests) - 1]})
+
+    agent = AutonomousCircuitAgent(adapter=LTSpiceAdapter(executable_path=sys.executable, workspace_dir=tmp_path))
+    assert agent.run("devreleri listele", llm) == {"finished": True, "steps": 2, "final_message": "Devre yok."}
+    assert agent.run("teşekkürler", llm)["final_message"] == "Tamam."
+    first, second, third = requests
+    assert second[:len(first)] == first
+    assert second[len(first)] == {"role": "assistant", "content": THINKING_TOOL_TURN}
+    assert [b["tool_use_id"] for b in second[len(first) + 1]["content"]] == ["t1"]
+    assert len(second) == len(first) + 2
+    assert third == second + [{"role": "assistant", "content": final_turn}, {"role": "user", "content": "teşekkürler"}]
+
+
+def test_turn_after_a_mid_output_fallback_echoes_only_what_the_api_accepts():
+    """Anthropic Claude API belgeleri, "Refusals and fallback" -> "Echoing fallback turns back": akışlı yanıtta model
+    çıktının ortasında değişirse son ``fallback`` bloğundan önceki thinking, redacted_thinking ve tool_use blokları geri
+    yollanmaz; metin ve sınırdan sonrası olduğu gibi gider, ``fallback`` bloğu yok sayılan bir işarettir (tutulabilir).
+    Sınırdan önceki araç çağrısı reddedilen modelindir: yürütülmez."""
+    declined = [{"type": "thinking", "thinking": "", "signature": "imza-a"}, {"type": "text", "text": "Önce"},
+                {"type": "tool_use", "id": "t0", "name": "list_circuits", "input": {}}]
+    after = [{"type": "fallback", "from": {"model": "claude-opus-5-5"}, "to": {"model": "claude-opus-5"}},
+             {"type": "thinking", "thinking": "", "signature": "imza-b"}, {"type": "text", "text": "Sonra"},
+             {"type": "tool_use", "id": "t1", "name": "list_circuits", "input": {}}]
+    reply = from_anthropic({"content": declined + after})
+    assert reply["tool_calls"] == [{"id": "t1", "name": "list_circuits", "arguments": {}}]
+    assert reply["content"] == "Önce\nSonra"
+    assert reply["anthropic_content"] == [declined[1]] + after
+
+
+def test_sdk_objects_with_thinking_are_kept_in_their_api_form():
+    """SDK yanıt nesneleri ``to_dict()`` ile API'nin alan adlarıyla (``from_`` değil ``from``) saklanır; düz metin ve
+    araç çağrısı içeren yanıtın biçimi değişmez (test_responses_become_the_agent_format). Akışsız yanıtta ``fallback``
+    bloğu içeriğin başında gelir (Anthropic belgeleri, "Refusals and fallback")."""
+    from types import SimpleNamespace as N
+
+    blocks = [{"type": "fallback", "from": {"model": "a"}, "to": {"model": "b"}},
+              {"type": "thinking", "thinking": "", "signature": "imza-1"},
+              {"type": "text", "text": "a"}]
+    response = N(content=[N(type=b["type"], text=b.get("text"), to_dict=lambda b=b: dict(b)) for b in blocks])
+    reply = from_anthropic(response)
+    assert reply["content"] == "a" and reply["tool_calls"] == []
+    _, messages = to_anthropic([{"role": "user", "content": "u"}, {"role": "assistant", **reply}])
+    assert messages[1] == {"role": "assistant", "content": blocks}
+
+
 def test_openai_image_message_waits_until_every_tool_result_is_sent():
     """OpenAI: asistanın tool_calls'ına verilen her 'tool' mesajı onu hemen izler; araya giren user mesajı isteği
     geçersiz kılar. Görselli sonuç ilk sırada olsa da görsel mesajı en sona gelir."""

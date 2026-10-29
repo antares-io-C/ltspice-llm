@@ -35,8 +35,8 @@ def main():
     print(">>> [MODELİN GEREKÇESİ (betikte sabit)]:")
     print("    1. Topoloji: 2. Derece Sallen-Key Alçak Geçiren Filtre (Butterworth Q=0.707).")
     print("    2. Formül: f_c = 1 / (2 * pi * sqrt(R1 * R2 * C1 * C2))")
-    print("    3. Seçim: R1 = R2 = 10kΩ. C1 = 2.25nF, C2 = 1.125nF (veya normalize değerler).")
-    print("    4. Op-Amp Modeli: 100k DC kazançlı, yüksek bant genişlikli VCVS (E1).\n")
+    print("    3. Seçim: R1 = R2 = 15.915kΩ, C1 = 1.414nF, C2 = 0.707nF (eşit dirençle C1 = 2·C2: Q = 0.707).")
+    print("    4. Op-Amp Modeli: 100k DC kazançlı VCVS (E1), birlik kazançlı tampon olarak bağlı.\n")
 
     # Adım 2: LLM Frekans Analizi (.AC) İçin Devreyi Kuruyor
     print(">>> [ARAÇ ÇAĞRISI]: create_or_replace_circuit (.ac frekans analizi)")

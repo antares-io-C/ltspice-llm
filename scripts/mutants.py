@@ -6,8 +6,9 @@ Coverage yalnızca hangi satırın *çalıştığını* söyler, neyin *doğrula
 bozar ve ilgili LTspice'sız testleri koşar; testler kırılmalıdır (mutant "öldü"). mutmut Windows'ta yalnızca
 WSL'de çalıştığı için bu küçük katalog kullanılır.
 
-    python scripts/mutants.py              # bütün katalog (~1-2 dk)
-    python scripts/mutants.py quantizer    # adında/etiketinde "quantizer" geçenler
+    python scripts/mutants.py              # bütün katalog (2026-10-29: 310 mutant, i7-7500U'da 25 dk'da bitmedi)
+    python scripts/mutants.py quantizer    # dosya yolunda ya da etiketinde "quantizer" geçenler
+    python -u scripts/mutants.py ... > x   # çıktı dosyaya giderken -u: tamponlanan çıktı kesilen koşumda kaybolur
 
 Bir hata düzelttiğinde "düzeltmeyi geri al" mutantını buraya ekle: yeni testin eski kodda kırmızı olduğunu
 kanıtlar ve ileride düzeltmenin sessizce geri gitmesini yakalar. Sağ kalan ya da eskimiş (değiştirilecek
@@ -886,6 +887,76 @@ MUTANTS = [
      "test-reviewer 10-28: rapor UNC yoluyla görsel yükler (SMB)", ["tests/test_report.py"]),
     ("examples/14_record_flow_fixtures.py", r'if not re.match(r"C:\\ws(?:\\|$)", p)]', 'if not p.startswith("C:")]',
      "test-reviewer 10-28: scrub_raw C: sürücüsündeki her yolu temiz sayar", ["tests/test_fixture_privacy.py"]),
+    # --- 2026-10-29: dosya yolu verilen devre kendi klasöründe koşar (model dosyası ve sembolleri bulunsun)
+    ("ltspice_llm/adapter.py",
+     "        if source_dir is None or _same_dir(source_dir, self.workspace_dir):\n            return target_netlist",
+     "        if True:\n            return target_netlist",
+     "eski hata 10-29: dosya yolu verilen devre çalışma alanında koşulur", ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/adapter.py", "            _run_dir=source_dir,\n", "            _run_dir=None,\n",
+     "eski hata 10-29: run_sweep dosya yolunu çalışma alanında koşar", ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/adapter.py", "                _collect_staged_outputs(run_path, target_netlist, run_notes)\n",
+     "                pass\n", "yol 10-29: çıktılar kaynağın klasöründe kalır", ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/adapter.py", "        dest = target.with_name(target.stem + path.name[len(staged.stem):])",
+     "        dest = target.with_name(path.name)", "yol 10-29: çıktılar geçici adlarıyla taşınır",
+     ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/adapter.py", "            shutil.copyfile(target_netlist, staged)\n        except OSError as ex:",
+     "            shutil.copyfile(target_netlist, staged)\n        except ValueError as ex:",
+     "yol 10-29: klasöre yazılamayınca çalışma alanına dönülmez (hata)", ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/adapter.py", "        if source_dir is None or _same_dir(source_dir, self.workspace_dir):",
+     "        if source_dir is None:", "yol 10-29: çalışma alanındaki dosya da kopyalanır",
+     ["tests/test_usecase_replay.py"]),
+    # --- 2026-10-29: ajanın sistem istemi değiştirilebilir (İngilizce istem)
+    ("ltspice_llm/circuit_agent.py",
+     "self.system_prompt = CIRCUIT_DESIGNER_SYSTEM_PROMPT if system_prompt is None else system_prompt",
+     "self.system_prompt = CIRCUIT_DESIGNER_SYSTEM_PROMPT", "istem 10-29: verilen sistem istemi yok sayılır",
+     ["tests/test_regressions.py"]),
+    ("ltspice_llm/circuit_agent.py",
+     '        self.conversation_history = [{"role": "system", "content": self.system_prompt}]',
+     '        self.conversation_history = [{"role": "system", "content": CIRCUIT_DESIGNER_SYSTEM_PROMPT}]',
+     "istem 10-29: reset varsayılan isteme döner", ["tests/test_regressions.py"]),
+    # --- 2026-10-29: Anthropic turu düşünme bloklarıyla değiştirilmeden geri gider (preserved thinking)
+    ("ltspice_llm/providers.py", '            if m.get("anthropic_content"):', "            if False:",
+     "düşünme 10-29: to_anthropic saklanan turu yeniden kurar (düşünme bloğu düşer)", ["tests/test_providers.py"]),
+    ("ltspice_llm/providers.py",
+     '    if any(_get(block, "type") not in _ANTHROPIC_PLAIN_BLOCKS for block in blocks):', "    if False:",
+     "düşünme 10-29: from_anthropic düşünme bloklarını saklamaz", ["tests/test_providers.py"]),
+    ("ltspice_llm/circuit_agent.py", "self.add_assistant_message(content, tool_calls, extra=response)",
+     "self.add_assistant_message(content, tool_calls)", "düşünme 10-29: ajan yanıtın sağlayıcı alanlarını atar",
+     ["tests/test_providers.py"]),
+    ("ltspice_llm/providers.py", "    return to_dict() if callable(to_dict) else dict(vars(block))",
+     "    return dict(vars(block))", "düşünme 10-29: SDK bloğu API biçimine çevrilmez", ["tests/test_providers.py"]),
+    ("ltspice_llm/providers.py", "    if last <= 0:\n        return blocks", "    if True:\n        return blocks",
+     "düşünme 10-29: fallback sınırından önceki thinking/tool_use geri yollanır ve yürütülür", ["tests/test_providers.py"]),
+    # --- 2026-10-29 test-reviewer: ilk testlerle sağ kalan mutantlar (A-H)
+    ("ltspice_llm/adapter.py", "        dest = target.with_name(target.stem + path.name[len(staged.stem):])",
+     "        dest = target.with_suffix(path.suffix)", "reviewer 10-29 A: .op.raw ana .raw'ın yerine taşınır",
+     ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/adapter.py", '    return f"_ltspice_llm_{stem}_{os.getpid()}_{threading.get_ident()}"',
+     '    return f"_ltspice_llm_{stem}_{os.getpid()}"',
+     "reviewer 10-29 B: aynı klasördeki eşzamanlı iki koşum aynı kopyayı kullanır", ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/adapter.py",
+     "        try:\n            errors, threads = self._run_ltspice(run_path, target_text, run_timeout, run_notes)\n"
+     "        finally:\n            if run_path != target_netlist:\n"
+     "                _collect_staged_outputs(run_path, target_netlist, run_notes)\n",
+     "        errors, threads = self._run_ltspice(run_path, target_text, run_timeout, run_notes)\n"
+     "        if run_path != target_netlist and not errors:\n"
+     "            _collect_staged_outputs(run_path, target_netlist, run_notes)\n",
+     "reviewer 10-29 C: başarısız koşumda kopya kaynağın klasöründe kalır", ["tests/test_robustness.py"]),
+    ("ltspice_llm/adapter.py", "                shutil.copyfile(path, dest)\n                path.unlink()\n",
+     "                shutil.copyfile(path, dest)\n", "reviewer 10-29 D: başka sürücüde kopya silinmez",
+     ["tests/test_usecase_replay.py"]),
+    ("ltspice_llm/circuit_agent.py", "self.add_assistant_message(content, tool_calls, extra=response)",
+     "self.add_assistant_message(content, tool_calls, extra=response if tool_calls else None)",
+     "reviewer 10-29 E: araç çağırmayan son turun düşünme bloğu atılır", ["tests/test_providers.py"]),
+    ("ltspice_llm/system_prompts.py", "- Voltage source (PULSE): `V1 in 0 PULSE(0 5 0 1n 1n 1m 2m)`",
+     "- Voltage source (PULSE): `V1 in 0 PULSE(0 5 0 0 0 1m 2m)`",
+     "reviewer 10-29 F: İngilizce istemde PULSE Trise/Tfall 0", ["tests/test_regressions.py"]),
+    ("ltspice_llm/system_prompts.py", "look at the `stepped_measurements`", "look at the `step_measurements`",
+     "reviewer 10-29 G: İngilizce istemde yanlış sonuç alanı adı", ["tests/test_regressions.py"]),
+    ("ltspice_llm/adapter.py",
+     "                      if self._looks_like_path(netlist_content_or_path, treat_as_text) else _run_dir)",
+     "                      if isinstance(netlist_content_or_path, Path) and not treat_as_text else _run_dir)",
+     "reviewer 10-29 H: metin olarak verilen dosya yolu çalışma alanında koşar", ["tests/test_usecase_replay.py"]),
 ]
 
 

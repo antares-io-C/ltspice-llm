@@ -17,7 +17,13 @@
     {"id": "A5", "message": "Her iş makine geneli bütçeden kira alır ve bırakır", "proof": "trace",
      "symbol": "cpu_guard.CpuSlotPool.acquire", "source": "docs/KILAVUZ.md 'Çalışma Alanı ve Eşzamanlılık'"},
     {"id": "A6", "message": "Sonuçlar giriş sırasıyla döner", "proof": "boundary",
-     "source": "ltspice_llm/adapter.py run_batch belgesi (API sözleşmesi)"}
+     "source": "ltspice_llm/adapter.py run_batch belgesi (API sözleşmesi)"},
+    {"id": "A7", "message": "Dosya yolu verilen tarama kaynağın klasöründe koşar (göreli .include/.lib bulunsun)",
+     "proof": "boundary",
+     "source": "ADI SIMULATION-COMMANDS-REFERENCE '.INCLUDE' ve '.LIB' Search order; ltspice_llm/adapter.py run_netlist belgesi"},
+    {"id": "A8", "message": "Aynı dosyanın eşzamanlı iki işi kaynağın klasöründe ayrı kopyalar kullanır, birbirini ezmez",
+     "proof": "boundary",
+     "source": "ltspice_llm/adapter.py _staging_stem belgesi (süreç ve iş parçacığına özgü ad); docs/KILAVUZ.md 'Görsel Şema (.asc) Desteği'"}
   ],
   "scenarios": [
     {"test": "tests/test_performance_api.py::test_run_sweep_accepts_numeric_values", "flow": "Basic",
@@ -40,6 +46,22 @@
                 "cpu_guard.CpuSlotPool.acquire": 5, "adapter.LTSpiceAdapter._execute": 5,
                 "cpu_guard.CpuLease.release": 5},
      "evidence": {"A6": "assert [r.netlist_path.stem for r in results] == [\"c\" + str(i) for i in range(5)]"},
-     "note": "Dizi her işçi iş parçacığında ayrı denetlenir (per_thread)."}
+     "note": "Dizi her işçi iş parçacığında ayrı denetlenir (per_thread)."},
+    {"test": "tests/test_usecase_replay.py::test_sweep_of_a_netlist_file_runs_in_its_own_folder", "flow": "Alternative",
+     "actions": ["A1", "A2", "A7"],
+     "sequence": ["adapter.LTSpiceAdapter.run_sweep", "adapter.LTSpiceAdapter.run_netlist",
+                  "adapter.LTSpiceAdapter._execute"],
+     "counts": {"adapter.LTSpiceAdapter.run_netlist": 1, "adapter.LTSpiceAdapter._execute": 1},
+     "evidence": {"A2": "assert replay.netlists[0].count(\".step param R1 list 1k 2k\") == 1",
+                  "A7": "assert [p.parent for p in replay.launched] == [src.parent.resolve()]"}},
+    {"test": "tests/test_usecase_replay.py::test_two_runs_of_the_same_file_at_once_use_separate_copies", "flow": "Alternative",
+     "actions": ["A4", "A5", "A8"],
+     "per_thread": true,
+     "sequence": ["adapter.LTSpiceAdapter.run_netlist", "cpu_guard.CpuSlotPool.acquire",
+                  "adapter.LTSpiceAdapter._execute", "cpu_guard.CpuLease.release"],
+     "counts": {"adapter.LTSpiceAdapter.run_batch": 1, "adapter.LTSpiceAdapter.run_netlist": 2,
+                "adapter.LTSpiceAdapter._execute": 2},
+     "evidence": {"A8": "assert len(set(replay.launched)) == 2 and {p.parent for p in replay.launched} == {src.parent.resolve()}"},
+     "note": "İki LTspice da başlamadan hiçbiri bitmez (threading.Barrier); makine 2 çekirdekli sahtelenir."}
   ]
 }
