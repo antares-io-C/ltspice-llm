@@ -24,11 +24,20 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+# Ajan skill'leri (.agents/skills): narrative-pptx (.pptx) ve explainer-gif (GIF). Paket bunları içe aktarmaz.
+# Pillow 9.1: Image.Resampling / Image.Quantize / Image.Dither; python-pptx 1.0: Python 3.10+ desteği.
+media = [
+    "python-pptx>=1.0",
+    "Pillow>=9.1",
+]
 dev = [
+    # CI ve kalite kapısı skill betiklerini de sınar (tests/test_skills.py)
+    "ltspice-llm[media]",
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",
     "pytest-timeout>=2.4",
     "hypothesis>=6.150",
+    "pyyaml>=6.0",  # SKILL.md önbilgisi YAML olmalı (tests/test_skills.py)
     # Üst sınır: yeni küçük sürüm yeni kural ya da çıkarım getirip CI'ı kendiliğinden kırabilir (ilk commit'in CI'ı
     # mypy 2.4 ile kırmızıydı). Kapı mypy 1.19.1/2.4.1 ve ruff 0.16.10/0.17.3 ile temiz; yükseltmeyi elle yapın.
     "ruff>=0.16,<0.18",

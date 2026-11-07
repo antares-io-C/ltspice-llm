@@ -94,6 +94,7 @@ ltspice-llm/
 │   ├── 16_process_and_memory_hardening.py # Çökme, yetim süreç, disk, .raw belleği, .asy pinleri: ölçüm + rapor
 │   ├── 17_gemini_review_3.py              # üçüncü Gemini incelemesinin iddiaları, ölçülerek + rapor
 │   ├── 18_gemini_review_4.py              # dördüncü Gemini incelemesinin iddiaları, ölçülerek + rapor
+│   ├── 19_simulation_to_slides.py         # RC basamak yanıtı -> rapor, GIF ve .pptx (ajan skill'leri)
 │   └── study_helpers.py                   # rapor yolu ve kaydı
 ├── docs/
 │   ├── KILAVUZ.md                         # bu belge: ayrıntılı kullanım kılavuzu

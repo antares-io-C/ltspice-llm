@@ -179,17 +179,38 @@ Araç açıklamaları, araç sonuçlarındaki mesajlar ve ajanın varsayılan si
 
 ## Örnekler
 
-Çalıştırılabilir 14 örneğin hepsi [examples/](examples/) klasöründe. Etkileşimli bir terminal arayüzü de var:
+Çalıştırılabilir 15 örneğin hepsi [examples/](examples/) klasöründe. Etkileşimli bir terminal arayüzü de var:
 `python interactive_designer.py`.
+
+## Ajan skill'leri: sunum ve hareketli GIF
+
+İki [Agent Skills](https://agentskills.io/specification) skill'i simülasyon sonucunu başkalarına gösterilecek
+malzemeye çevirir. Betikleri `ltspice_llm`'i içe aktarmaz; `pip install -e ".[media]"` (python-pptx, Pillow) ister.
+
+- [narrative-pptx](.agents/skills/narrative-pptx/SKILL.md): JSON hikâye şemasından düzenlenebilir `.pptx` (iddia
+  cümlesi başlıklar, yedi düzen, açıklamalı grafikler, konuşmacı notları) ve geometri/görsel denetim.
+  `python .agents/skills/narrative-pptx/scripts/deck_builder.py .agents/skills/narrative-pptx/assets/example_spec.json -o sunum.pptx`
+  örnek sunumu derler.
+- [explainer-gif](.agents/skills/explainer-gif/SKILL.md): dalga formundan ya da parametre taramasından, slaytta
+  okunabilir kalan döngülü GIF (poster kare, kenarlarda ağır çekim, kalıcı balonlar, en az okuma süresi) ve doğrulayıcı.
+
+[examples/19_simulation_to_slides.py](examples/19_simulation_to_slides.py) LTspice'ı koşturup raporu, iki GIF'i ve
+sunumu uçtan uca üretir. Üçüncü skill [verify-review](.agents/skills/verify-review/SKILL.md), bir yapay zekâ
+incelemesinin iddialarını uygulamadan önce LTspice ölçümüyle doğrular.
+
+Skill'ler `.agents/skills/` altında; Antigravity ve diğer Agent Skills istemcileri orada bulur. Claude Code yalnızca
+`.claude/skills/`'i okur; orada her skill için aynı ad ve açıklamayı taşıyan kısa bir yönlendirme dosyası var,
+`tests/test_skills.py` ikisinin eşleştiğini denetler.
 
 ## Proje yapısı
 
 ```text
-ltspice_llm/   kütüphane: LTspice adaptörü, çıktı ayrıştırıcıları, LLM araçları, teşhis, rapor
-examples/      çalıştırılabilir örnekler
-docs/          ayrıntılı kullanım kılavuzu ve ölçümle doğrulanmış dersler
-tests/         testler (çoğu LTspice olmadan koşar)
-scripts/       kalite kapısı ve test araçları
+ltspice_llm/      kütüphane: LTspice adaptörü, çıktı ayrıştırıcıları, LLM araçları, teşhis, rapor
+examples/         çalıştırılabilir örnekler
+docs/             ayrıntılı kullanım kılavuzu ve ölçümle doğrulanmış dersler
+tests/            testler (çoğu LTspice olmadan koşar)
+scripts/          kalite kapısı ve test araçları
+.agents/skills/   ajan skill'leri: sunum ve hareketli GIF
 ```
 
 ## Testler

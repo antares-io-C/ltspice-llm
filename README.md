@@ -179,17 +179,38 @@ The tool descriptions and the messages in tool results are in Turkish, and so is
 
 ## Examples
 
-All 14 runnable examples are in [examples/](examples/). There is also an interactive terminal interface:
+All 15 runnable examples are in [examples/](examples/). There is also an interactive terminal interface:
 `python interactive_designer.py`. The code comments and the detailed documentation are in Turkish.
+
+## Agent skills: slides and animated GIFs
+
+Two [Agent Skills](https://agentskills.io/specification) turn simulation results into material for other people.
+Their scripts don't import `ltspice_llm`; they need `pip install -e ".[media]"` (python-pptx, Pillow).
+
+- [narrative-pptx](.agents/skills/narrative-pptx/SKILL.md): an editable `.pptx` deck from a JSON story spec
+  (assertion headlines, seven layouts, annotated charts, speaker notes), plus a geometry and visual check.
+  `python .agents/skills/narrative-pptx/scripts/deck_builder.py .agents/skills/narrative-pptx/assets/example_spec.json -o deck.pptx`
+  builds the sample deck.
+- [explainer-gif](.agents/skills/explainer-gif/SKILL.md): looping GIFs from waveforms or parameter sweeps that stay
+  readable in a slide (poster frame, slow motion at edges, latched callouts, minimum text time), plus a validator.
+
+[examples/19_simulation_to_slides.py](examples/19_simulation_to_slides.py) runs LTspice and produces the report,
+two GIFs and a deck end to end. A third skill, [verify-review](.agents/skills/verify-review/SKILL.md), checks an AI
+review's claims against LTspice measurements before applying them.
+
+The skills live in `.agents/skills/`, where Antigravity and other Agent Skills clients find them. Claude Code reads
+only `.claude/skills/`, so each skill has a short pointer file there with the same name and description;
+`tests/test_skills.py` keeps the two in step. The skill instructions are in Turkish.
 
 ## Project layout
 
 ```text
-ltspice_llm/   the library: LTspice adapter, output parsers, LLM tools, diagnosis, reports
-examples/      runnable examples
-docs/          detailed user guide and measurement-backed lessons (Turkish)
-tests/         tests (most of them run without LTspice)
-scripts/       quality gate and test tooling
+ltspice_llm/      the library: LTspice adapter, output parsers, LLM tools, diagnosis, reports
+examples/         runnable examples
+docs/             detailed user guide and measurement-backed lessons (Turkish)
+tests/            tests (most of them run without LTspice)
+scripts/          quality gate and test tooling
+.agents/skills/   agent skills: slide decks and animated GIFs
 ```
 
 ## Tests

@@ -2,6 +2,30 @@
 
 ## Yayımlanmadı
 
+- Ajan skill'leri (`.agents/skills/`, Agent Skills biçimi): `narrative-pptx` (JSON şemadan düzenlenebilir `.pptx`,
+  yedi düzen, örnek şema `assets/example_spec.json`, geometri ve görsel denetim) ve `explainer-gif` (genel tarama,
+  koyu ışımalı tarama ve eğri ailesi geçişi arketipleri, HTML/WebGL sahnesi yakalama, GIF doğrulayıcı). Claude Code
+  için `.claude/skills/` altında aynı önbilgiyi taşıyan yönlendirmeler. Bağımlılıklar `pip install -e ".[media]"`
+  (python-pptx, Pillow); `dev` bunu ve SKILL.md önbilgisini denetleyen PyYAML'ı içerir. Skill'lerin testleri ve
+  mutantları: `tests/test_skills.py`, `scripts/mutants.py` ("skill 11-03", "reviewer 11-07").
+- explainer-gif okuma süresi alt sınırı iki yerde deliniyordu: kelime payının üst sınırı (2700 ms) daha büyük bir
+  `min_dwell_ms`'yi eziyordu; eksik süre en yakın 10 ms'ye yuvarlanınca metin alt sınırın 10 ms'ye kadar altında
+  kalabiliyordu (komşulara bölmede `round(2.5) = 2`). HTML/WebGL yakalayıcısında sanal saat hiç kurulmuyordu
+  (`add_init_script` yalnızca gezinmede çalışır, sahne `set_content` ile yükleniyordu).
+- explainer-gif `adaptive_event_samples`: birbirine ya da uçlara yakın `snap_points` kayboluyordu (iki an aynı örneğe
+  düşüyor, uç sıfırlaması ilk ve son örneğe yakın anı siliyordu), GIF'te olay anı tam kareye düşmüyordu. Her an artık
+  ayrı bir iç örneğe düşer; iç örneklere sığmayan anlar `ValueError` verir.
+- HTML/WebGL yakalayıcısı sahneyi ağ kapalı çalıştırır (`offline=True`): sahne belgeye göre kendi kendine yeter, ama
+  kodda engel yoktu; dış adreslere script, fetch ve WebSocket isteği atabiliyordu.
+- narrative-pptx `validate_deck` PowerShell'i tam yoluyla başlatır: yalın ad, sistem klasöründen önce çalışma klasöründeki
+  `powershell.exe`'yi çalıştırırdı.
+- `examples/19_simulation_to_slides.py`: RC basamak yanıtından (tek değişken R) HTML rapor, iki GIF ve `.pptx`;
+  bütün sayılar `.meas`'ten, çıktılar denetimden geçer.
+- narrative-pptx: `spec_warnings` sığmayan kartları ve kalan `⟨...⟩` yer tutucularını bildirir; varsayılan
+  etiketler sunumun diline göre (İngilizce sunumda "MECHANISM", "▶ LIVE GIF").
+- `verify-review` skill'i `.agents/skills/`'e taşındı (Antigravity de görür); `.claude/skills/` yönlendirmedir.
+- Türkçe sunumda (`"language": "tr"`) büyük harfe çevrilen çip ve rozetlerde i -> İ ("GEÇİŞ", eskiden "GEÇIŞ").
+
 - `run_netlist` / `run_sweep`: dosya yoluyla verilen devre kendi klasöründe koşuyor, kopya ve çıktıları çalışma alanına
   taşınıyor. Eskiden kopya çalışma alanında koşuluyordu: şemanın yanındaki model dosyası (göreli `.include`/`.lib`)
   "File not found" verdi, yanındaki sembol netlistten uyarısız düştü ve koşum yanlış devreyle başarılı göründü

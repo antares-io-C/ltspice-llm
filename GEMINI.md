@@ -212,6 +212,11 @@ floor/ceil, `.1u`/`4k7` yazımı) yeşil testlerin altında duruyordu (2026-10-0
 ## Proje
 
 - Paket: `ltspice_llm/`, testler: `tests/`, örnekler: `examples/`, dersler: `docs/`.
+- Ajan skill'leri `.agents/skills/<ad>/` altında (Agent Skills biçimi, tek kaynak): `narrative-pptx` (.pptx sunum) ve
+  `explainer-gif` (hareketli GIF), `verify-review` (yapay zekâ incelemesini ölçerek doğrulama); uçtan uca örnek
+  `examples/19_simulation_to_slides.py`. Betikleri `ltspice_llm`'e bağlanmaz; bir uygulamaya özgü çizim ya da sayı skill'e
+  girmez, onu kullanan betik `examples/` altında kalır. Bağımlılıklar `pip install -e ".[media]"`. Sunum ve GIF'teki
+  her sayı da `.meas`/`.raw`'dan gelir ve `SimulationReport`'un yerine geçmez.
 - Yeni örnek betiği depo kökünü `sys.path`'e ekleyerek başlasın (`sys.path.insert(0, str(ROOT))`). Koşudan önce
   `ltspice_llm.__file__`'a bak. `pip install -e` başka bir kopyayı gösteriyorsa kökü eklemeyen betik o kopyanın
   paketini sessizce çalıştırır (`docs/LESSONS_LEARNED_PERFORMANCE.md` §7).

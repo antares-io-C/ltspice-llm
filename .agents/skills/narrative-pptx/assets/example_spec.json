@@ -1,0 +1,104 @@
+{
+  "title": "Bir simülasyon çalışmasını anlatan sunum iskeleti",
+  "author": "Ekip adı",
+  "story_arc": "Soru, düzenek, kanıt, karşılaştırma ve tasarım kuralı tek bir akışta.",
+  "theme": "midnight_editorial",
+  "language": "tr",
+  "slides": [
+    {
+      "layout": "hero_cover",
+      "accent": "blue",
+      "eyebrow": "SİMÜLASYON ÇALIŞMASI",
+      "title": "Hangi soruyu sorduk ve simülasyon ne cevap verdi?",
+      "subtitle": "Kapak tek cümlelik cevabı verir; sonraki slaytlar onu kanıtlar.",
+      "pillars": [
+        {"role": "blue", "tag": "1. BÖLÜM", "title": "Düzenek", "body": "Ne modellendi, hangi düğüm ölçüldü."},
+        {"role": "amber", "tag": "2. BÖLÜM", "title": "Kanıt", "body": "Dalga formu ve `.meas` ölçümleri."},
+        {"role": "emerald", "tag": "3. BÖLÜM", "title": "Karar", "body": "Tek değişkenli karşılaştırmadan çıkan kural."}
+      ],
+      "meta": "Ekip adı · tarih · LTspice sürümü",
+      "speaker_notes": "Açılışta sorulan soruyu ve cevabı tek cümleyle söyle."
+    },
+    {
+      "layout": "mental_model",
+      "chapter": "Düzenek",
+      "accent": "blue",
+      "assertion": "Test devresi tek bir değişkeni değiştirir ve her koşumda aynı düğümü ölçer.",
+      "scene_title": "Test düzeneği",
+      "scene_summary": "image alanına devre şemasının PNG'sini ver; bu kutu şemanın yanında özet olarak kalır.",
+      "characters": [
+        {"role": "blue", "title": "Değişken", "law": "tek değişken", "body": "Koşumlar arasında yalnızca bu bileşen değişir.", "trait": "Önce / sonra aynı düğüm"},
+        {"role": "amber", "title": "Ölçüm", "law": ".meas", "body": "Her sayı `.meas` ya da `.raw`'dan okunur.", "trait": "Elle yazılan sayı yok"}
+      ],
+      "narrative_bridge": "Düzenek kurulduğuna göre ilk koşumda ne gördüğümüze bakalım.",
+      "speaker_notes": "Dinleyicinin zihninde sistemi kur: ne sürülüyor, ne ölçülüyor, ne değişiyor."
+    },
+    {
+      "layout": "evidence_bento",
+      "chapter": "Kanıt",
+      "accent": "blue",
+      "assertion": "Başlık, grafikte gösterilen davranışı tam bir cümleyle söyler.",
+      "image_caption": "image alanına açıklamalı grafik (chart_artist) ya da GIF (explainer-gif) ver.",
+      "metrics": [
+        {"role": "blue", "label": "SİMÜLASYON 1", "value": "⟨.meas⟩", "note": "ölçümün adı ve düğümü"},
+        {"role": "amber", "label": "SİMÜLASYON 2", "value": "⟨.meas⟩", "note": "ölçümün adı ve düğümü"}
+      ],
+      "mechanism": {"role": "blue", "badge": "MEKANİZMA", "title": "Neden böyle davranıyor?", "body": "Ölçülen davranışın fiziksel nedeni, iki üç cümle.", "takeaway_pill": "Tek cümlelik çıkarım"},
+      "narrative_bridge": "Aynı ölçümü değişkenin ikinci değeriyle tekrarladığımızda ne değişti?",
+      "speaker_notes": "Grafikteki kırılma noktasını göster ve KPI kutusundaki değerin hangi ölçümden geldiğini söyle."
+    },
+    {
+      "layout": "split_duality",
+      "chapter": "Karşılaştırma",
+      "accent": "amber",
+      "assertion": "Önce ve sonra yalnızca tek değişkenle ayrışır; fark ölçümden hesaplanır.",
+      "center_badge": "↔",
+      "left": {"role": "blue", "title": "Önce", "subtitle": "değişkenin ilk değeri", "rows": [{"label": "Ölçüm 1", "value": "`⟨.meas⟩`"}, {"label": "Ölçüm 2", "value": "`⟨.meas⟩`"}], "summary": "Kısa yorum"},
+      "right": {"role": "amber", "title": "Sonra", "subtitle": "değişkenin ikinci değeri", "rows": [{"label": "Ölçüm 1", "value": "`⟨.meas⟩`"}, {"label": "Ölçüm 2", "value": "`⟨.meas⟩`"}], "summary": "Kısa yorum"},
+      "narrative_bridge": "Bu farkın zaman içinde nasıl oluştuğunu adım adım izleyelim.",
+      "speaker_notes": "İki sütundaki aynı satırları karşılaştır; farkın yönünü ve büyüklüğünü söyle."
+    },
+    {
+      "layout": "process_arc",
+      "chapter": "Süreç",
+      "accent": "violet",
+      "assertion": "Olay üç aşamada gelişir; her aşamanın ölçülen bir karşılığı vardır.",
+      "stages": [
+        {"step": "01", "phase": "t = 0", "title": "Başlangıç", "metric": "⟨.meas⟩", "body": "İlk anda ne olur.", "role": "blue"},
+        {"step": "02", "phase": "geçiş", "title": "Geçiş", "metric": "⟨.meas⟩", "body": "Geçiş sırasında ne olur.", "role": "amber"},
+        {"step": "03", "phase": "kararlı", "title": "Kararlı durum", "metric": "⟨.meas⟩", "body": "Simülasyon penceresinde oturduğu değer.", "role": "emerald"}
+      ],
+      "narrative_bridge": "Bütün koşumları tek tabloda yan yana koyalım.",
+      "speaker_notes": "Aşamaları soldan sağa anlat; her metriğin hangi ölçümden geldiğini söyle."
+    },
+    {
+      "layout": "comparison_matrix",
+      "chapter": "Tablo",
+      "accent": "emerald",
+      "assertion": "Tablo, seçilen varyantın neden öne çıktığını tek bakışta gösterir.",
+      "headers": ["Varyant", "Ölçüm 1", "Ölçüm 2", "Sonuç"],
+      "rows": [
+        ["A", "⟨.meas⟩", "⟨.meas⟩", "ölçütü karşılamıyor"],
+        ["B", "⟨.meas⟩", "⟨.meas⟩", "ölçütü karşılıyor"],
+        ["C", "⟨.meas⟩", "⟨.meas⟩", "sınırda"]
+      ],
+      "highlight_row": 1,
+      "insight": {"role": "emerald", "title": "Seçim", "body": "Hangi varyant, hangi ölçüte göre ve hangi payla seçildi."},
+      "narrative_bridge": "Son slaytta buradan çıkan tasarım kurallarını toplayalım.",
+      "speaker_notes": "Vurgulanan satırı ve seçim ölçütünü açıkla."
+    },
+    {
+      "layout": "synthesis_closing",
+      "chapter": "Sonuç",
+      "accent": "emerald",
+      "assertion": "Çalışmadan üç tasarım kuralı ve donanımda ölçülecek bir liste çıktı.",
+      "pillars": [
+        {"role": "blue", "badge": "KURAL 1", "title": "Birinci kural", "body": "Hangi ölçüme dayandığıyla birlikte.", "rule": "Kısa kural metni"},
+        {"role": "amber", "badge": "KURAL 2", "title": "İkinci kural", "body": "Hangi ölçüme dayandığıyla birlikte.", "rule": "Kısa kural metni"},
+        {"role": "rose", "badge": "VARSAYIM", "title": "Donanımda ölçülecek", "body": "Simülasyonun varsayımları ve doğrulanması gerekenler.", "rule": "Simülasyon, saha ölçümü değil"}
+      ],
+      "closing_banner": "Her sayı simülasyondan geldi; donanımda ölçülmedikçe simülasyon sonucudur.",
+      "speaker_notes": "Kuralları ve varsayımları tekrar et; donanım ölçüm planını söyle."
+    }
+  ]
+}

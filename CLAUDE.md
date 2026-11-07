@@ -22,6 +22,11 @@ yazılır; bu dosyada yalnızca Claude Code'a özgü olanlar durur.
   ilk makinede cp1252 (Türkçe harfleri basamaz), şimdiki makinede cp1254 (Ω, →, ✓ gibi işaretleri basamaz). İkisinde
   de bu karakterleri basan Python çöker. `.claude/settings.json` bu yüzden `PYTHONIOENCODING=utf-8` verir.
   `PYTHONUTF8=1` kullanma: `open()` varsayılanını da UTF-8 yapar.
+- Claude Code kabuğu `NoDefaultCurrentDirectoryInExePath=1` tanımlar: Windows yalın program adını çalışma klasöründe
+  aramaz, sıradan bir terminaldeki davranış burada görünmez (`validate_deck`'in yalın `powershell` çağrısı çalışma
+  klasöründeki sahte exe'yi ancak değişken kalkınca çalıştırdı, 2026-11-07). Bunu ölçerken değişkeni alt süreçten kaldır.
+- Bir korumayı ölçerken önce korumasız kolun gerçekten sızdırdığını gör: Edge'in yerel ağ koruması `127.0.0.1` isteklerini
+  kestiği için önlemsiz sahne de "0 istek" verdi, ölçüm hiçbir şey göstermiyordu.
 - `tests/conftest.py` her pytest oturumuna ayrı `cpu_guard` kilit dizini verir, yani pytest'in LTspice koşumları
   başka süreçlerle iş parçacığı bütçesi paylaşmaz. PreToolUse hook'u bu yüzden batch LTspice çalışırken pytest'i
   (ve pytest'in LTspice'ı çalışırken örnek/`.scratch` betiklerini) engeller. pytest'i komutun bölümlerinde
@@ -36,6 +41,9 @@ yazılır; bu dosyada yalnızca Claude Code'a özgü olanlar durur.
   düzenlemede, `tests/usecases/*.json`'da da senaryo/eylem silen ya da denetimi gevşeten düzenlemede
   kullanıcıya sorar. SessionStart hook'u LTspice.exe değişince ve oturum başında kalmış batch LTspice
   varsa uyarır. Kişisel olarak kapatmak için `.claude/settings.local.json`'a `"disableAllHooks": true`.
+- Claude Code skill'leri yalnızca `.claude/skills/`'ten okur. `.agents/skills/<ad>/` (GEMINI.md "Proje") için
+  `.claude/skills/<ad>/SKILL.md` yalnızca yönlendirmedir: önbilgisi kanonik dosyanınkiyle birebir aynı, gövdesi
+  kanonik dosyayı gösterir. Yönerge kanonik dosyaya yazılır; `tests/test_skills.py` eşleşmeyi denetler.
 - Test ekledikten ya da değiştirdikten sonra `test-reviewer` subagent'ıyla bağımsız inceleme yap
   (`.claude/agents/test-reviewer.md`); bulguları doğrulamadan uygulama.
 - `git clean` ve `git reset --hard` izin kurallarıyla engellidir: geri alınamazlar.

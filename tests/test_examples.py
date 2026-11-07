@@ -37,7 +37,7 @@ def load_example(monkeypatch):
 
 
 def test_every_numbered_example_is_listed():
-    assert len(ALL_EXAMPLES) == 14 and ALL_EXAMPLES[0].startswith("01_") and ALL_EXAMPLES[-1].startswith("18_")
+    assert len(ALL_EXAMPLES) == 15 and ALL_EXAMPLES[0].startswith("01_") and ALL_EXAMPLES[-1].startswith("19_")
 
 
 @pytest.mark.parametrize("stem", ALL_EXAMPLES)
@@ -68,7 +68,7 @@ _FAST_ARGS = {
 #: Raporunu LTSPICE_LLM_REPORT_DIR'e yazan örnekler
 _OUTPUTS = {stem: [f"{stem}.html", f"{stem}.parca.html"] for stem in (
     "12_ltspice_reference_checks", "15_hotplug_damping_validation", "16_process_and_memory_hardening",
-    "17_gemini_review_3", "18_gemini_review_4")}
+    "17_gemini_review_3", "18_gemini_review_4", "19_simulation_to_slides")}
 #: 14, testlerin yeniden oynattığı gerçek LTspice kayıtlarını (tests/data) yeniden yazar: test paketinde koşulmaz.
 RUNNABLE = [stem for stem in ALL_EXAMPLES if not stem.startswith("14_")]
 

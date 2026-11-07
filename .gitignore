@@ -25,6 +25,10 @@ htmlcov/
 *.db
 !tests/data/*.db
 
+# Skill çıktıları (sunum, GIF): içerikleri sıkıştırılmış, yerel tarama göremez; bilerek eklenecekse git add -f
+*.pptx
+*.gif
+
 # Simülasyon raporları (betikler her koşumda yeniden üretir; bkz. GEMINI.md "Rapor kuralı")
 reports/
 
