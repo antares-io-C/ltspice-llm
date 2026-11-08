@@ -6,6 +6,7 @@ Bu loglar gerçek simülasyonlardan alınmıştır; sentetik biçimler gerçek �
 """
 
 import math
+import statistics
 import typing
 from pathlib import Path
 
@@ -195,3 +196,18 @@ def test_utf16_log_roundtrip_through_read_text(tmp_path):
     p.write_bytes('Measurement "m" FAIL\'ed\n'.encode("utf-16-le"))  # LTspice XVII biçimi (BOM'suz)
     assert LogParser.read_text(p).strip() == 'Measurement "m" FAIL\'ed'
     assert LogParser.parse_file(p).failed_measurements == ["m"]
+
+
+def test_step_statistics_keep_small_values():
+    """Eski hata (bağımsız inceleme, 2026-11-08): istatistikler 6 ondalığa yuvarlanıyordu; tau = 0.000999667541485 s,
+    0.001 oldu, nanosaniye ölçümleri 0 olurdu. Beklenen değerler logdaki adım satırlarının metni; ortalama ve sapma
+    standart kütüphanenin statistics modülüyle bağımsız hesaplanır."""
+    parsed = _log("ref26_step_tran_db")
+    taus = [row["tau"] for row in parsed.stepped_measurements["tau"]]
+    assert taus == [0.000999667541485, 0.00199934332889, 0.00299901668536]
+    stats = parsed.step_statistics["tau"]
+    assert (stats["min"], stats["max"]) == (taus[0], taus[2])
+    assert stats["mean"] == pytest.approx(statistics.fmean(taus), rel=1e-12)
+    assert stats["std"] == pytest.approx(statistics.pstdev(taus), rel=1e-9)
+    assert stats["range"] == pytest.approx(taus[2] - taus[0], rel=1e-12)
+    assert parsed.measurements["tau"] == stats["mean"]   # steplenmiş koşumda özet, adımların ortalamasıdır

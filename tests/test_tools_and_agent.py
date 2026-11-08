@@ -22,7 +22,7 @@ from ltspice_llm import (
     handle_tool_call,
 )
 from ltspice_llm.netlist import ltspice_visible
-from ltspice_llm.parser import RawParser
+from ltspice_llm.parser import ParsedLog, RawParser
 
 
 @pytest.fixture
@@ -1228,3 +1228,55 @@ def test_schematic_tool_applies_parameters_to_the_simulated_schematic(adapter, m
     assert b"SYMATTR InstName R1\nSYMATTR Value 2k" in sent.replace(b"\r\n", b"\n")
 
 
+
+
+# Gerçek LTspice 26.1.1 logları (tests/data): ref26_mc_divider'da v_out = AVG(V(out)) beş Monte Carlo adımında
+# 5.17514133453, 4.81480026245, 5.06019878388, 5.19931840897, 4.99313926697 V; step_param_multi'de v_tr 4. adımda
+# "failed". Ad kuralı (_measured_stress): 'v_out' OUT adlı bileşenin, 'v_tr' TR'nin gerilimi; iki logda da bu
+# bileşenlerle eşleşen başka v_/p_ ölçümü yok.
+STEPPED_LOG = Path(__file__).parent / "data" / "ref26_mc_divider.log.txt"
+FAILED_STEP_LOG = Path(__file__).parent / "data" / "step_param_multi.log.txt"
+
+
+def _safety_with(adapter, log, ratings):
+    adapter.workspace_dir.mkdir(parents=True, exist_ok=True)
+    (adapter.workspace_dir / "st.log").write_bytes(log.read_bytes())
+    return handle_tool_call("check_design_safety", {"circuit_name": "st", "component_ratings": ratings}, adapter=adapter)
+
+
+def test_design_safety_judges_a_stepped_run_by_its_worst_step(adapter):
+    """Eski hata (bağımsız inceleme, 2026-11-08): steplenmiş koşumda 'measurements' adımların ortalamasıdır ve güvenlik
+    ona bakıyordu. Elle: ortalama 5,0485 V < 5,1 V sınırı (eskiden 0,8 derating ile MARGINAL); en kötü adım 5,1993 V >
+    5,1 V -> FAIL."""
+    (comp,) = _safety_with(adapter, STEPPED_LOG, {"OUT": {"max_voltage": 5.1}})["components"]
+    assert comp["status"] == "FAIL"
+    assert comp["measured_v_peak"] == 5.19931840897
+
+
+def test_design_safety_does_not_pass_a_measurement_that_failed_in_some_step(adapter):
+    """En kötü köşe bilinmiyorsa güvenli sayılmaz: v_tr 4. adımda başarısız, ölçülen adımlar 1 V sınırının çok altında
+    (en çok 2,27 mV) olsa da bileşen UNCHECKED, genel sonuç INCOMPLETE."""
+    res = _safety_with(adapter, FAILED_STEP_LOG, {"TR": {"max_voltage": 1.0}})
+    (comp,) = res["components"]
+    assert comp["status"] == "UNCHECKED" and comp["measured_v_peak"] is None
+    assert sum("adımda başarısız" in d for d in comp["details"]) == 1
+    assert res["overall_safety"] == "INCOMPLETE"
+
+
+def test_worst_case_takes_the_magnitude_of_negative_steps():
+    """_worst_case_measurements belgesi: her ölçümün mutlak en büyük adımı. -12/-24/-48 V adımlarında en kötüsü 48 V;
+    işaretli max -12'yi seçer ve 40 V'luk parça 12 V ile geçerdi (girdi açık veri, LTspice taklidi değil)."""
+    from ltspice_llm.tools import _worst_case_measurements
+
+    rows = [{"step": k, "v_c1": v} for k, v in enumerate((-12.0, -24.0, -48.0), start=1)]
+    parsed = ParsedLog(measurements={"v_c1": -28.0}, stepped_measurements={"v_c1": rows})
+    assert _worst_case_measurements(parsed) == ({"v_c1": 48.0}, [])
+
+
+def test_failed_step_is_not_masked_by_another_measurement():
+    """_measured_stress belgesi: başarısız ölçümün türü None olur, başka bir ölçüm bunu örtemez. TR'nin vmax_tr'si
+    başarılı, v_tr'si bir adımda başarısız: gerilim bilinmiyor sayılır."""
+    from ltspice_llm.tools import _measured_stress
+
+    assert _measured_stress({"vmax_tr": 2e-3}, "TR", ["v_tr"]) == {"v": None}
+    assert _measured_stress({"vmax_tr": 2e-3}, "TR") == {"v": 2e-3}

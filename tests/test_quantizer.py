@@ -205,3 +205,18 @@ def test_formula_or_text_parameters_are_left_as_they_are():
     assert res["quantized_parameters"] == {"R": "4.7k", "X": "{R_base*2}", "M": "NPN"}   # IEC 60063 E12: 4.7
     assert "skipped_reason" in res["details"]["X"] and "skipped_reason" in res["details"]["M"]
     assert set(res["raw_quantized_values"]) == {"R"}
+
+
+def test_difference_keeps_small_component_values():
+    """Eski hata (bağımsız inceleme, 2026-11-08 ile aynı kök): fark 6 ondalığa yuvarlanıyordu; 1,05 nF'ın E12 karşılığı
+    1 nF, fark -50 pF 0.0 görünürdü. Elle: 1,0e-9 - 1,05e-9 = -5e-11 (E12: 1.0, 1.2; 1.05 1.0'a daha yakın)."""
+    res = snap_to_e_series(1.05e-9, "E12")
+    assert res["standard_value"] == 1e-9
+    assert res["difference"] == pytest.approx(-5e-11, rel=1e-6)
+
+
+def test_difference_keeps_its_significant_digits():
+    """IEC 60063 E24'te 1.2 ve 1.3 var; 1.234 1.2'ye yakın. Elle: 1.2e-9 - 1.234e-9 = -3.4e-11 (iki anlamlı basamak)."""
+    res = snap_to_e_series(1.234e-9, "E24")
+    assert res["standard_value"] == 1.2e-9
+    assert res["difference"] == pytest.approx(-3.4e-11, rel=1e-3)

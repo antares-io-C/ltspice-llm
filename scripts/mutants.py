@@ -13,6 +13,8 @@ WSL'de çalıştığı için bu küçük katalog kullanılır.
 Bir hata düzelttiğinde "düzeltmeyi geri al" mutantını buraya ekle: yeni testin eski kodda kırmızı olduğunu
 kanıtlar ve ileride düzeltmenin sessizce geri gitmesini yakalar. Sağ kalan ya da eskimiş (değiştirilecek
 satır bulunamayan) mutant varsa 1 döner. Proje dosyalarına dokunmaz; ``.asc`` kopyalanmaz.
+
+Öldüren testi LTspice'ın kurulu verisine bakan mutant ``NEEDS_LTSPICE_DATA``'ya yazılır: veri yoksa koşulmaz, ``ATLANDI`` basılır.
 """
 
 import os
@@ -32,6 +34,17 @@ NET = ["tests/test_regressions.py", "tests/test_properties.py", "tests/test_cpu_
 TA = ["tests/test_tools_and_agent.py"]
 SCN = ["tests/test_single_connection_nodes.py"]
 SK = ["tests/test_skills.py"]
+MC = ["tests/test_mutants_catalog.py"]
+
+SYMBOLS = "sembol kütüphanesi (lib/sym)"
+REFERENCE = "ADI referans belgeleri"
+#: Öldüren testi LTspice'ın kurulu verisine bakan mutantlar: etiket -> gereken veri. Exe değil veri gerekir, ``run_tests`` exe'yi
+#: zaten yok sayar. Veri yokken test kendiliğinden atlanır, mutant sağ kalmış görünürdü (haftalık iş, 2026-11-02: 316/319).
+NEEDS_LTSPICE_DATA = {
+    "eski hata: LTspice'ta olmayan 'inductor' sembolü": SYMBOLS,
+    "reviewer: diyotta anode/cathode yer değiştirir": SYMBOLS,
+    "teşhis: ADI belgesinde olmayan bölüm adı": REFERENCE,
+}
 
 # (dosya, eski metin, yeni metin, etiket, koşulacak testler)
 MUTANTS = [
@@ -149,7 +162,8 @@ MUTANTS = [
     ("ltspice_llm/tools.py", '            kind = {"V": "v", "P": "p"}.get(parts[i - 1][:1])',
      '            kind = "v" if "V" in meas_name.upper() else ("p" if "P" in meas_name.upper() else None)',
      "eski hata: adında V geçen güç ölçümü (pavg_r1) gerilim sayılır", TA),
-    ("ltspice_llm/tools.py", '            status = "UNCHECKED"\n', '            status = "PASS"\n',
+    ("ltspice_llm/tools.py", '        elif value is None:\n            status = "UNCHECKED"\n',
+     '        elif value is None:\n            status = "PASS"\n',
      "eski hata: ölçümü olmayan bileşen PASS alır", TA),
     ("ltspice_llm/tools.py", "    derating = {**_DEFAULT_DERATING, **{k: float(v) for k, v in given.items()}}",
      "    derating = dict(_DEFAULT_DERATING)", "eski hata: derating girdisi yok sayılır", TA),
@@ -191,10 +205,11 @@ MUTANTS = [
     ("ltspice_llm/tools.py",
      '    v_factor = derating["voltage_semiconductor"] if comp[:1].upper() in ("Q", "D") else derating["voltage"]',
      '    v_factor = derating["voltage"]', "reviewer: Q/D yarı iletken katsayısı yok sayılır", TA),
-    ("ltspice_llm/tools.py", "                found[kind] = max(found.get(kind, 0.0), abs(float(value)))",
-     "                found[kind] = max(found.get(kind, 0.0), float(value))", "reviewer: negatif gerilimin mutlağı alınmaz", TA),
-    ("ltspice_llm/tools.py", "                found[kind] = max(found.get(kind, 0.0), abs(float(value)))",
-     "                found[kind] = abs(float(value))", "reviewer: en kötü yerine son ölçüm", TA),
+    ("ltspice_llm/tools.py", "                    found[kind] = max(found.get(kind) or 0.0, abs(float(value)))",
+     "                    found[kind] = max(found.get(kind) or 0.0, float(value))",
+     "reviewer: negatif gerilimin mutlağı alınmaz", TA),
+    ("ltspice_llm/tools.py", "                    found[kind] = max(found.get(kind) or 0.0, abs(float(value)))",
+     "                    found[kind] = abs(float(value))", "reviewer: en kötü yerine son ölçüm", TA),
     ("ltspice_llm/tools.py", "            if s_max is not None and v > float(s_max):", "            if False:",
      "reviewer: verimde üst sınır denetlenmez", TA),
     ("ltspice_llm/tools.py", '        elem = _set_element_value(mc_content, comp, f"{{mc({{{comp}_nom}}, {tol_float})}}")',
@@ -810,8 +825,8 @@ MUTANTS = [
      '        if False:\n            lines.append(value.group("text").strip())\n',
      "inceleme 10-11: şemanın SYMATTR değerindeki file=/wavefile= görülmez", ["tests/test_netlist_policy.py"]),
     ("ltspice_llm/tools.py",
-     "        refused = _refused_file_access(apply_parameters(content, params).content)\n        if refused:\n"
-     "            return refused\n", "",
+     "    refused = _refused_file_access(apply_parameters(content, params).content if params else content, \"netlist\")\n"
+     "    if refused:\n        return refused\n", "",
      "inceleme 10-11: parametre değerine gizlenen wavefile= denetlenmez", TA),
     # _FILE_ACCESS.reset'i silen mutant eşdeğer: her handle_tool_call izni kendisi kurar, genel API'den gözlenemez.
     # --- test-reviewer (2026-10-24): 0945e73'ün testlerinden sağ çıkan mutantlar
@@ -1330,7 +1345,115 @@ MUTANTS = [
      'os.environ.get("SystemRoot") or r"C:\\Windows"',
      'os.environ.get("SystemRoot", r"C:\\Windows")',
      'reviewer 11-07 K14: boş SystemRoot yolu göreli yapar', SK),
+    # --- 2026-11-07: LTspice verisine bağlı mutantlar. Bu dosyayı bozanların eski metni parçalıdır: tek geçmeli, katalogda değil.
+    ("scripts/mutants.py", "    run = [m for m in mutants if NEEDS_LTSPICE_DATA.get(m[3]) not" " in missing]",
+     "    run = [m for m in mutants if m[3] not" " in NEEDS_LTSPICE_DATA]", "katalog: veri varken de atlanır", MC),
+    ("scripts/mutants.py", "    if not ReferenceDocs()" ".available:", "    if False:",
+     "katalog: ADI belgeleri denetlenmez, üçüncü mutant yine sağ kalır", MC),
+    ("scripts/mutants.py", 'not (data / "lib" / "sym")' ".is_dir()", "not data" ".is_dir()",
+     "katalog: yalnız kök klasöre bakılır, sembol kütüphanesi denetlenmez", MC),
+    ("scripts/mutants.py", "    selected, skipped = split_by_ltspice_data(selected" ", missing_ltspice_data())",
+     "    skipped = []", "katalog: atlama koşulmaz, haftalık iş yine kırmızı olur", MC),
+    # --- 2026-11-08 bağımsız inceleme: düzeltmeleri geri alan mutantlar
+    ('ltspice_llm/netlist.py',
+     '        return _logical_lines(content) + _code_lines(content, "asc")',
+     '        return _logical_lines(content)',
+     'inceleme 11-08: tür bilinmeyince şema satırları taranmaz', ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/netlist.py',
+     '        if key not in seen:',
+     '        if True:',
+     'inceleme 11-08: iki yorumda görülen yapı iki kez bildirilir', ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/tools.py',
+     '    refused = _refused_file_access(apply_parameters(asc_text, params).content if params else asc_text, "asc")',
+     '    refused = _refused_file_access(apply_parameters(asc_text, params).content if params else asc_text, "netlist")',
+     "inceleme 11-08: şema aracı .asc'yi netlist sanar", ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/tools.py',
+     '    refused = _refused_file_access(mc_content, "netlist")\n    if refused:\n        return refused\n',
+     '',
+     "inceleme 11-08: Monte Carlo netlisti LTspice'a denetlenmeden gider", ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/tools.py',
+     '                mc_content = f"{mc_content[:m.start(2)]}{{mc({old_p}, {tol_float})}}{mc_content[m.end(2):]}"',
+     '                mc_content = param_re.sub(rf"\\g<1>{{mc({old_p}, {tol_float})}}", mc_content, count=1)',
+     'inceleme 11-08: re.sub şablonu değerdeki kaçışı satır sonuna çevirir', ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/parser.py',
+     '                            "min": float(np.min(arr)),',
+     '                            "min": round(float(np.min(arr)), 6),',
+     'inceleme 11-08: adım istatistiği 6 ondalığa yuvarlanır', ['tests/test_real_logs.py']),
+    ('ltspice_llm/parser.py',
+     '            "min": _significant(self.min_val, 6),',
+     '            "min": round(self.min_val, 5),',
+     'inceleme 11-08: dalga özeti ondalığa yuvarlanır (µA sıfır)', ['tests/test_regressions.py']),
+    ('ltspice_llm/quantizer.py',
+     '        "difference": float(f"{diff:.6g}"),',
+     '        "difference": round(diff, 6),',
+     'inceleme 11-08: E serisi farkı ondalığa yuvarlanır (pF sıfır)', Q),
+    ('ltspice_llm/tools.py',
+     '            worst[name] = max(abs(float(v)) for v in values)',
+     '            pass',
+     'inceleme 11-08: güvenlik steplenmiş koşumda ortalamaya bakar', TA),
+    ('ltspice_llm/tools.py',
+     '            worst.pop(name, None)\n            incomplete.append(name)',
+     '            pass',
+     'inceleme 11-08: adımda başarısız ölçüm ortalamayla geçer', TA),
+    ('ltspice_llm/tools.py',
+     '    found.update(dict.fromkeys(unknown))',
+     '    pass',
+     'inceleme 11-08: başarısız adım bilgisi bileşene ulaşmaz', TA),
+    # --- 2026-11-08 test-reviewer: yeni testlerin kör noktaları ve modify_parameters
+    ('ltspice_llm/tools.py',
+     '            worst[name] = max(abs(float(v)) for v in values)',
+     '            worst[name] = max(float(v) for v in values)',
+     'inceleme 11-08: negatif adımlarda işaretli en büyük alınır', TA),
+    ('ltspice_llm/tools.py',
+     '    found.update(dict.fromkeys(unknown))',
+     '    [found.setdefault(k, None) for k in unknown]',
+     'inceleme 11-08: başarılı ölçüm başarısız adımı örter', TA),
+    ('ltspice_llm/parser.py',
+     '    return float(f"{value:.{digits}g}")',
+     '    return float(f"{value:.2g}")',
+     'inceleme 11-08: dalga özeti 2 anlamlı basamak', ['tests/test_regressions.py']),
+    ('ltspice_llm/parser.py',
+     '    return float(f"{value:.{digits}g}")',
+     '    return float(value)',
+     'inceleme 11-08: dalga özeti hiç yuvarlanmaz', ['tests/test_regressions.py']),
+    ('ltspice_llm/netlist.py',
+     '            add(("yazar", line), f"\'{line}\': dosya yazar ({head}).")',
+     '            add(("yazar",), f"\'{line}\': dosya yazar ({head}).")',
+     'inceleme 11-08: farklı yazan satırlar tek bildirime iner', ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/quantizer.py',
+     '        "difference": float(f"{diff:.6g}"),',
+     '        "difference": float(f"{diff:.1g}"),',
+     'inceleme 11-08: E serisi farkı 1 anlamlı basamak', Q),
+    ('ltspice_llm/netlist.py',
+     '        return _logical_lines(content) + _code_lines(content, "asc")',
+     '        return _code_lines(content, "asc") if any(ln.lstrip().upper().startswith(("TEXT ", "SYMATTR ")) for ln in content.splitlines()) else _logical_lines(content)',
+     'inceleme 11-08: auto türü içerikten seçer', ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/tools.py',
+     '    refused = _refused_file_access(apply_parameters(content, params).content if params else content, "netlist")\n',
+     '    refused = _refused_file_access(apply_parameters(content, params).content, "netlist") if params else None\n',
+     'inceleme 11-08: parametresiz modify_parameters denetlenmez', ['tests/test_netlist_policy.py']),
 ]
+
+
+def missing_ltspice_data():
+    """Bu makinede olmayan LTspice verileri; koşullar öldüren testlerin kendi atlama koşullarıyla aynıdır."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))   # başka bir kopyanın kurulu paketi okunmasın
+    from ltspice_llm import ReferenceDocs, ltspice_data_dir
+
+    data = ltspice_data_dir()
+    missing = set()
+    if data is None or not (data / "lib" / "sym").is_dir():
+        missing.add(SYMBOLS)
+    if not ReferenceDocs().available:
+        missing.add(REFERENCE)
+    return missing
+
+
+def split_by_ltspice_data(mutants, missing):
+    """``(koşulacaklar, atlananlar)``: atlanan mutantın gerektirdiği veri ``missing`` içindedir."""
+    run = [m for m in mutants if NEEDS_LTSPICE_DATA.get(m[3]) not in missing]
+    return run, [m for m in mutants if NEEDS_LTSPICE_DATA.get(m[3]) in missing]
 
 
 def make_copy():
@@ -1358,6 +1481,13 @@ def main(argv=None):
         sys.stdout.reconfigure(encoding="utf-8")
     argv = sys.argv[1:] if argv is None else argv
     selected = [m for m in MUTANTS if not argv or any(a in m[0] or a in m[3] for a in argv)]
+    selected, skipped = split_by_ltspice_data(selected, missing_ltspice_data())
+    for path, _old, _new, label, _tests in skipped:
+        print(f"ATLANDI {path:<30} {label}: {NEEDS_LTSPICE_DATA[label]} bu makinede yok")
+    note = f", {len(skipped)} atlandı" if skipped else ""
+    if not selected:
+        print(f"0/0 mutant öldü{note}")
+        return 0
 
     base = make_copy()
     all_tests = sorted({t for m in selected for t in m[4]})
@@ -1386,7 +1516,7 @@ def main(argv=None):
         bad += not killed
         who = f" <- {failed}" if failed else ""
         print(f"{'ÖLDÜ ' if killed else 'SAĞ  '}  {path:<30} {label} ({time.time() - t0:.1f} sn){who}")
-    print(f"{len(selected) - bad}/{len(selected)} mutant öldü" + ("" if not bad else f", {bad} sorunlu"))
+    print(f"{len(selected) - bad}/{len(selected)} mutant öldü{note}" + ("" if not bad else f", {bad} sorunlu"))
     return 1 if bad else 0
 
 

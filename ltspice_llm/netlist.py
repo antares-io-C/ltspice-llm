@@ -123,8 +123,10 @@ _READ_DIRECTIVES = {".include", ".inc", ".lib", ".loadstate"}
 _STATE_OPTION_RE = re.compile(r"(?<![\w.])(?P<kind>savestate|loadstate)(?:\s*=\s*(?P<path>\"[^\"]*\"|\S+))?",
                               re.IGNORECASE)
 _FILE_ARG_RE = re.compile(r"(?<![\w.])(?:wavefile|file)\s*=\s*(?P<path>\"[^\"]*\"|\S+)", re.IGNORECASE)
-_ASC_TEXT_DIRECTIVE_RE = re.compile(r"^TEXT\s+[-0-9]+\s+[-0-9]+\s+\w+\s+\d+\s+!(?P<text>.*)$")
-_ASC_VALUE_RE = re.compile(r"^SYMATTR\s+(?:Value2?|SpiceLine2?)\s+(?P<text>.*)$")
+_ASC_TEXT_DIRECTIVE_RE = re.compile(r"^TEXT\s+[-0-9]+\s+[-0-9]+\s+\w+\s+\d+\s+!(?P<text>.*)$", re.IGNORECASE)
+_ASC_VALUE_RE = re.compile(r"^SYMATTR\s+(?:Value2?|SpiceLine2?)\s+(?P<text>.*)$", re.IGNORECASE)
+#: file_access_problems türleri: LTspice .net/.cir'i netlist, .asc'yi şema okur (uzantıdan, içerikten değil)
+FILE_KINDS = ("auto", "netlist", "asc")
 
 
 def _outside_workspace(path: str) -> bool:
@@ -137,13 +139,20 @@ def _outside_workspace(path: str) -> bool:
             or re.search(r"%[^%]+%", p) is not None)
 
 
-def _code_lines(content: str) -> List[str]:
+def _code_lines(content: str, kind: str = "auto") -> List[str]:
     """
-    LTspice'ın okuduğu kod satırları. Netlist: başlık ve ``.end`` sonrası atılır, ``+`` birleşir, yorum silinir. ``.asc``:
-    ``!`` ile başlayan TEXT direktifleri (çok satırlı metinde satırlar ``\\n`` ile ayrılır) ve SYMATTR değerleri.
+    LTspice'ın okuduğu kod satırları. ``netlist``: başlık ve ``.end`` sonrası atılır, ``+`` birleşir, yorum silinir.
+    ``asc``: ``!`` ile başlayan TEXT direktifleri (çok satırlı metinde satırlar ``\\n`` ile ayrılır) ve SYMATTR değerleri.
+    ``auto``: ikisi birden. Tür içerikten seçilmez: eskiden yalnız 'Version ' ile başlayıp 'SHEET ' içeren metin şema
+    sayılıyordu; BOM'lu, sekmeli, küçük harfli ya da SHEET'siz şemanın direktifleri, başlığı 'Version' olan netlistin de
+    satırları taranmadan geçiyordu (bağımsız inceleme, 2026-11-08).
     """
-    if not (content.lstrip().startswith("Version ") and "SHEET " in content):
+    if kind not in FILE_KINDS:
+        raise ValueError(f"kind {list(FILE_KINDS)} değerlerinden biri olmalı: {kind!r}")
+    if kind == "netlist":
         return _logical_lines(content)
+    if kind == "auto":
+        return _logical_lines(content) + _code_lines(content, "asc")
     lines: List[str] = []
     for raw in content.splitlines():
         text = _ASC_TEXT_DIRECTIVE_RE.match(raw.strip())
@@ -155,9 +164,13 @@ def _code_lines(content: str) -> List[str]:
     return [ln for ln in lines if ln and not ln.startswith("*")]
 
 
-def file_access_problems(content: str) -> List[str]:
+def file_access_problems(content: str, kind: str = "auto") -> List[str]:
     """
     Güvenilmeyen bir netlistin (ya da ``.asc``'nin) dosya sistemine dokunan yapıları; her biri bir açıklama, yoksa boş.
+
+    ``kind``: LTspice'ın dosyayı nasıl okuyacağı, ``"netlist"`` (.net/.cir) ya da ``"asc"`` (.asc). Araç katmanı yazdığı
+    dosyanın türünü verir. Varsayılan ``"auto"`` metni iki biçimde de tarar. Her yazan satır ayrı bildirilir; dışarıyı
+    okuyan yapılar yola göre bir kez (iki yorumda da görülen SYMATTR ``file=`` değeri tek bildirim olur).
 
     Dosya yazan her yapı reddedilir (``.wave``, ``.savebias``, ``.savestate``, ``.tran ... savestate``): ``.wave``
     istenen yola yazar (ADI örneği ``.wave C:\\output.wav``). Okuyan yapılarda (``.include``/``.lib``/``.loadstate``,
@@ -166,16 +179,23 @@ def file_access_problems(content: str) -> List[str]:
     dosyalar serbesttir. LTspice'ın okumadığı kısım (başlık satırı, yorum, ilk ``.end`` sonrası) denetlenmez.
     """
     problems: List[str] = []
+    seen: Set[Tuple[str, ...]] = set()   # "auto" iki yorumu birleştirir: SYMATTR satırındaki file= iki kez görünür
+
+    def add(key: Tuple[str, ...], message: str) -> None:
+        if key not in seen:
+            seen.add(key)
+            problems.append(message)
 
     def read(line: str, path: str) -> None:
         if _outside_workspace(path):
-            problems.append(f"'{line}': çalışma alanı dışındaki bir dosyayı okur ({path.strip(chr(34))}).")
+            clean = path.strip().strip('"')
+            add(("okur", clean), f"'{line}': çalışma alanı dışındaki bir dosyayı okur ({clean}).")
 
-    for line in _code_lines(content):
+    for line in _code_lines(content, kind):
         tokens = line.split()
         head = tokens[0].lower()
         if head in _WRITE_DIRECTIVES:
-            problems.append(f"'{line}': dosya yazar ({head}).")
+            add(("yazar", line), f"'{line}': dosya yazar ({head}).")
             continue
         if head in _READ_DIRECTIVES:
             if len(tokens) > 1:
@@ -183,7 +203,7 @@ def file_access_problems(content: str) -> List[str]:
             continue
         for state in _STATE_OPTION_RE.finditer(line):
             if state.group("kind").lower() == "savestate":
-                problems.append(f"'{line}': dosya yazar (savestate).")
+                add(("savestate", state.group("path") or ""), f"'{line}': dosya yazar (savestate).")
             elif state.group("path"):
                 read(line, state.group("path"))
         for arg in _FILE_ARG_RE.finditer(line):

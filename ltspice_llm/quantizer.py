@@ -248,7 +248,7 @@ def snap_to_e_series(
         "formatted": format_spice_value(standard_value),
         "series": series_upper,
         "error_pct": round(error_pct, 4),
-        "difference": round(diff, 6),
+        "difference": float(f"{diff:.6g}"),   # anlamlı basamak: 6 ondalık nF düzeyindeki farkı 0 gösterirdi
     }
 
 

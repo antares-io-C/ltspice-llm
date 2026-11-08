@@ -378,6 +378,11 @@ def parse_fourier_blocks(log_content: str) -> List[Dict[str, Any]]:
     return blocks
 
 
+def _significant(value: float, digits: int) -> float:
+    """``digits`` anlamlı basamağa yuvarlar (ölçekten bağımsız; nan ve inf olduğu gibi kalır)."""
+    return float(f"{value:.{digits}g}")
+
+
 @dataclass
 class WaveformSummary:
     """LLM bağlam penceresini şişirmeyen sıkıştırılmış dalga formu özeti."""
@@ -394,15 +399,16 @@ class WaveformSummary:
     total_steps: int = 1
 
     def to_dict(self) -> Dict[str, Any]:
+        # Anlamlı basamağa yuvarlanır: ondalık basamak (eskiden 5 ve 4) µA düzeyindeki akımı 0 gösterirdi.
         data: Dict[str, Any] = {
-            "min": round(self.min_val, 5),
-            "max": round(self.max_val, 5),
-            "mean": round(self.mean_val, 5),
-            "rms": round(self.rms_val, 5),
-            "peak_to_peak": round(self.peak_to_peak, 5),
+            "min": _significant(self.min_val, 6),
+            "max": _significant(self.max_val, 6),
+            "mean": _significant(self.mean_val, 6),
+            "rms": _significant(self.rms_val, 6),
+            "peak_to_peak": _significant(self.peak_to_peak, 6),
             "sample_count": self.sample_count,
             "is_complex": self.is_complex,
-            "sampled_trend_preview": [round(x, 4) for x in self.downsampled_points],
+            "sampled_trend_preview": [_significant(x, 4) for x in self.downsampled_points],
         }
         if self.total_steps > 1:
             data["step"] = self.step
@@ -912,13 +918,15 @@ class LogParser:
                     ]
                     if numeric_vals:
                         arr = np.array(numeric_vals, dtype=float)
+                        # Yuvarlanmaz: 6 ondalık nanosaniye ölçümleri 0, 0.999667 ms'yi 0.001 yapıyordu
+                        # (bağımsız inceleme, 2026-11-08). measurements özeti de bu ortalamadır.
                         stats: Dict[str, float] = {
-                            "min": round(float(np.min(arr)), 6),
-                            "max": round(float(np.max(arr)), 6),
-                            "mean": round(float(np.mean(arr)), 6),
-                            "std": round(float(np.std(arr)), 6),
+                            "min": float(np.min(arr)),
+                            "max": float(np.max(arr)),
+                            "mean": float(np.mean(arr)),
+                            "std": float(np.std(arr)),
                             "count": len(numeric_vals),
-                            "range": round(float(np.max(arr) - np.min(arr)), 6),
+                            "range": float(np.max(arr) - np.min(arr)),
                         }
                         if len(numeric_vals) < len(rows):
                             stats["failed_steps"] = len(rows) - len(numeric_vals)

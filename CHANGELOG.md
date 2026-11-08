@@ -2,6 +2,22 @@
 
 ## Yayımlanmadı
 
+Bağımsız inceleme (2026-11-08) düzeltmeleri:
+
+- Güvenlik, `simulate_monte_carlo`: toleranslı `.param` değeri `re.sub`'ın yerine koyma şablonuna gömülüyordu. Şablon
+  değerdeki `\n` kaçışını satır sonuna çevirir: oluşturulurken tek `.param` satırı olan metin Monte Carlo netlistinde
+  `.wave` gibi bir direktif olup denetlenmeden LTspice'a gidebiliyordu. Değer artık dilimle konur ve Monte Carlo
+  netlisti LTspice'tan önce yeniden denetlenir.
+- Güvenlik, `file_access_problems(content, kind)`: şema mı netlist mi olduğu içerikten tahmin edilmez. Araçlar yazdıkları
+  dosyanın türünü verir (`"netlist"`, `"asc"`), varsayılan `"auto"` iki biçimde de tarar. Eskiden BOM'lu, sekmeli, küçük
+  harfli ya da `SHEET`'siz şemanın direktifleri, başlığı `Version` olan netlistin satırları denetimden geçmiyordu.
+- `check_design_safety` steplenmiş koşumda her ölçümün en kötü adımına bakar; bir adımda başarısız ölçüm bileşeni
+  UNCHECKED yapar. Eskiden adımların ortalamasını kullanıyordu: sınırı aşan bir köşe varken PASS ya da MARGINAL verebilirdi.
+- Steplenmiş `.meas` istatistikleri (ve `measurements` özeti) yuvarlanmaz; dalga özeti ve E serisi farkı anlamlı
+  basamağa yuvarlanır. Ondalığa yuvarlama ns, µA ve pF düzeyindeki değerleri 0 gösteriyordu (`tau` = 0.000999668 s
+  istatistikte 0.001 oluyordu).
+- `.ferret` ayrıca denetlenmez: LTspice 26.1.1 "This directive is no longer supported" der, ağa ve diske dokunmaz (ölçüldü).
+
 - Ajan skill'leri (`.agents/skills/`, Agent Skills biçimi): `narrative-pptx` (JSON şemadan düzenlenebilir `.pptx`,
   yedi düzen, örnek şema `assets/example_spec.json`, geometri ve görsel denetim) ve `explainer-gif` (genel tarama,
   koyu ışımalı tarama ve eğri ailesi geçişi arketipleri, HTML/WebGL sahnesi yakalama, GIF doğrulayıcı). Claude Code
@@ -19,6 +35,8 @@
   kodda engel yoktu; dış adreslere script, fetch ve WebSocket isteği atabiliyordu.
 - narrative-pptx `validate_deck` PowerShell'i tam yoluyla başlatır: yalın ad, sistem klasöründen önce çalışma klasöründeki
   `powershell.exe`'yi çalıştırırdı.
+- `scripts/mutants.py`: öldüren testi LTspice'ın kurulu verisine bakan üç mutant, veri yokken koşulmaz ve `ATLANDI` diye
+  yazılır. Haftalık iş bu yüzden kırmızıydı (316/319) ve sonraki izolasyon adımına hiç geçemiyordu.
 - `examples/19_simulation_to_slides.py`: RC basamak yanıtından (tek değişken R) HTML rapor, iki GIF ve `.pptx`;
   bütün sayılar `.meas`'ten, çıktılar denetimden geçer.
 - narrative-pptx: `spec_warnings` sığmayan kartları ve kalan `⟨...⟩` yer tutucularını bildirir; varsayılan

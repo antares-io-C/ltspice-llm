@@ -192,8 +192,9 @@ floor/ceil, `.1u`/`4k7` yazımı) yeşil testlerin altında duruyordu (2026-10-0
   LTspice'a çekirdekten fazla iş parçacığı verilmez. Yerel kapı yine de CI'ın kendisi değildir: push'tan sonra CI
   sonucuna bak (`gh run list`; kırık job'ın kaydı `gh run view <id> --log-failed`).
 - Test gücü: `python scripts/mutants.py`. Bir hata düzelttiğinde kataloğa "düzeltmeyi geri al" mutantını ekle;
-  hepsi ölmeli. Claude Code'da test değişikliklerinden sonra `test-reviewer` subagent'ı bağımsız inceleme yapar.
-  Mutantı hangi testin öldürdüğüne bak. Yanlış nedenle ölen mutant (sahte süreçte olmayan metot, uç noktayı
+  hepsi ölmeli. Mutantı yalnız LTspice'ın kurulu verisine bakan bir test öldürüyorsa `NEEDS_LTSPICE_DATA`'ya yaz: veri
+  yokken test atlanır, mutant sağ kalmış görünür ve LTspice'sız haftalık iş kırmızı olur. Claude Code'da test
+  değişikliklerinden sonra `test-reviewer` subagent'ı bağımsız inceleme yapar. Mutantı hangi testin öldürdüğüne bak. Yanlış nedenle ölen mutant (sahte süreçte olmayan metot, uç noktayı
   düşüren seyreltme, gövdesi silinip sözdizimi hatası veren döngü: çıktıda öldüren test adı yok) boşluğu gizler.
 - Bu kalıplar yanlış kodla da geçer (2026-10-06'da altı mutant sağ çıktı):
   - Sıralamayı tek adayla sınamak.

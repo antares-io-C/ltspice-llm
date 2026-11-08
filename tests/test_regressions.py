@@ -557,3 +557,25 @@ def test_different_names_do_not_supersede_each_other(tmp_path, monkeypatch):
     b = ad.run_netlist(NET_B, circuit_name="b", treat_as_text=True, summarize_raw=False)
     assert not a.superseded and a.raw_path.read_bytes().startswith(b"* devre A")
     assert not b.superseded and b.raw_path.read_bytes().startswith(b"* devre B")
+
+
+def test_waveform_summary_keeps_microamp_values():
+    """Eski hata (bağımsız inceleme, 2026-11-08 ile aynı kök): LLM'e giden dalga özeti 5 ondalığa, eğilim önizlemesi 4
+    ondalığa yuvarlanıyordu. µA düzeyindeki bir akım izi sıfır görünürdü."""
+    from ltspice_llm.parser import WaveformSummary
+
+    summary = WaveformSummary("I(R1)", 1.2e-6, 3.4e-6, 2.5e-6, 2.6e-6, 2.2e-6, 100, downsampled_points=[1.2e-6, 3.4e-6])
+    data = summary.to_dict()
+    assert [data[k] for k in ("min", "max", "mean", "rms", "peak_to_peak")] == [1.2e-6, 3.4e-6, 2.5e-6, 2.6e-6, 2.2e-6]
+    assert data["sampled_trend_preview"] == [1.2e-6, 3.4e-6]
+
+
+def test_waveform_summary_rounds_to_significant_digits():
+    """Özet 6, eğilim önizlemesi 4 anlamlı basamak taşır (parser.WaveformSummary.to_dict). Elle: 1.23456789e-6 ->
+    1.23457e-6 ve 1.235e-6; 3.29491234 V -> 3.29491 (eski 5 ondalıklı çıktıyla aynı)."""
+    from ltspice_llm.parser import WaveformSummary
+
+    summary = WaveformSummary("V(out)", 1.23456789e-6, 3.29491234, 1.0, 1.0, 3.29, 10, downsampled_points=[1.23456789e-6])
+    data = summary.to_dict()
+    assert (data["min"], data["max"]) == (1.23457e-6, 3.29491)
+    assert data["sampled_trend_preview"] == [1.235e-6]

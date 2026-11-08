@@ -16,9 +16,10 @@ import base64
 import contextvars
 import copy
 import json
+import math
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .adapter import (
     LTSpiceAdapter,
@@ -511,23 +512,32 @@ _DEFAULT_DERATING = {"voltage": 0.80, "voltage_semiconductor": 0.75, "power": 0.
 _SAFETY_RANK = {"PASS": 0, "UNCHECKED": 1, "MARGINAL": 2, "FAIL": 3}
 
 
-def _measured_stress(measurements: Dict[str, Any], component: str) -> Dict[str, float]:
+def _measured_stress(
+    measurements: Dict[str, Any], component: str, incomplete: Sequence[str] = ()
+) -> Dict[str, Optional[float]]:
     """
     ``.meas`` sonuçlarından bir bileşenin en kötü (mutlak en büyük) gerilim ``v`` ve güç ``p`` değeri.
 
     Ad kuralı: bileşen adı ``_`` ile ayrılmış parçalar arasında tam eşleşir ve hemen önceki parça ``v`` ya da ``p``
     ile başlar (``v_c1``, ``vmax_c1``, ``p_r1``, ``pavg_r1``). ``v_c10`` C1'e, ``pavg_r1``'deki AVG gerilime sayılmaz.
+    ``incomplete``: steplenmiş koşumda en az bir adımda başarısız ölçümler. Eşleştiği tür ``None`` olur: en kötü adım
+    bilinmiyor ve başka bir ölçüm bunu örtemez.
     """
     want = component.upper().split("_")
-    found: Dict[str, float] = {}
-    for meas_name, value in measurements.items():
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+    found: Dict[str, Optional[float]] = {}
+    unknown = set()
+    for meas_name, value in [*measurements.items(), *((name, None) for name in incomplete)]:
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
             continue
         parts = meas_name.upper().split("_")
         for i in range(1, len(parts) - len(want) + 1):
             kind = {"V": "v", "P": "p"}.get(parts[i - 1][:1])
             if kind and parts[i:i + len(want)] == want:
-                found[kind] = max(found.get(kind, 0.0), abs(float(value)))
+                if value is None:
+                    unknown.add(kind)
+                else:
+                    found[kind] = max(found.get(kind) or 0.0, abs(float(value)))
+    found.update(dict.fromkeys(unknown))
     return found
 
 
@@ -622,15 +632,16 @@ def _coerce_dict(value: Any) -> Dict[str, Any]:
 _FILE_ACCESS: contextvars.ContextVar[bool] = contextvars.ContextVar("ltspice_llm_file_access", default=False)
 
 
-def _refused_file_access(text: str) -> Optional[Dict[str, Any]]:
+def _refused_file_access(text: str, kind: str) -> Optional[Dict[str, Any]]:
     """
     LLM'den gelen netlist/şema dosya yazıyor ya da çalışma alanı dışını okuyorsa ERROR sonucu, değilse None (bkz.
     `netlist.file_access_problems`). Eskiden netlist olduğu gibi LTspice'a gidiyordu: ``.wave`` istenen yola yazar
-    (inceleme 2026-10-11). Güvenilir girdide ``handle_tool_call(..., allow_file_access=True)``.
+    (inceleme 2026-10-11). Güvenilir girdide ``handle_tool_call(..., allow_file_access=True)``. ``kind``: yazılacak
+    dosyanın türü (``"netlist"`` ya da ``"asc"``); içerikten tahmin edilmez.
     """
     if _FILE_ACCESS.get():
         return None
-    problems = file_access_problems(text)
+    problems = file_access_problems(text, kind)
     if not problems:
         return None
     return {
@@ -790,7 +801,7 @@ def _tool_create_circuit(args: Dict[str, Any], name: str, adapter: LTSpiceAdapte
     if not str(code).strip():
         return {"status": "ERROR", "message": "Netlist kodu boş olamaz ('netlist_code' gereklidir)."}
 
-    refused = _refused_file_access(apply_parameters(str(code), params).content if params else str(code))
+    refused = _refused_file_access(apply_parameters(str(code), params).content if params else str(code), "netlist")
     if refused:
         return refused
     # LLM girdisi her zaman netlist METNİ sayılır; asla dosya yolu olarak okunmaz.
@@ -813,8 +824,8 @@ def _tool_modify_parameters(args: Dict[str, Any], name: str, adapter: LTSpiceAda
             "message": f"Devre dosyası bulunamadı: {netlist_file}. Önce create_or_replace_circuit çağırın.",
         }
 
+    content = netlist_file.read_text(encoding="utf-8", errors="ignore")
     if params:
-        content = netlist_file.read_text(encoding="utf-8", errors="ignore")
         unresolved = apply_parameters(content, params).unresolved
         if unresolved:
             return {
@@ -826,9 +837,11 @@ def _tool_modify_parameters(args: Dict[str, Any], name: str, adapter: LTSpiceAda
                 "available_parameters": list_param_names(content),
                 "available_elements": list_element_names(content),
             }
-        refused = _refused_file_access(apply_parameters(content, params).content)
-        if refused:
-            return refused
+    # Koşulacak metin her zaman denetlenir: kayıtlı dosya oluşturulurken denetlendi, ama başka bir yoldan da gelmiş
+    # olabilir (ör. allow_file_access=True ile). Eskiden parametre verilmeyince hiç denetlenmiyordu (inceleme 2026-11-08).
+    refused = _refused_file_access(apply_parameters(content, params).content if params else content, "netlist")
+    if refused:
+        return refused
 
     result = adapter.run_netlist(
         netlist_content_or_path=netlist_file,
@@ -1087,7 +1100,7 @@ def _tool_schematic(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) ->
         }
 
     asc_text = AscSchematic.from_dict(sch_data).render() if sch_data else str(asc_code)
-    refused = _refused_file_access(apply_parameters(asc_text, params).content if params else asc_text)
+    refused = _refused_file_access(apply_parameters(asc_text, params).content if params else asc_text, "asc")
     if refused:
         return refused
     asc_path = adapter.workspace_dir / f"{name}.asc"
@@ -1133,11 +1146,31 @@ def _tool_schematic(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) ->
     return res_dict
 
 
+def _worst_case_measurements(parsed: Any) -> Tuple[Dict[str, Any], List[str]]:
+    """
+    check_design_safety'nin okuduğu ölçümler. Steplenmiş koşumda ``measurements`` adımların ortalamasıdır, parça
+    güvenliği ise en kötü köşeye bakar: her ölçümün mutlak en büyük adımı alınır. Eskiden ortalama kullanılıyordu:
+    12/24/48 V taramasında 40 V'luk parça 28 V ile PASS aldı (bağımsız inceleme, 2026-11-08). Bir adımda başarısız olan
+    ölçüm atılır ve adı döner: en kötü köşe bilinmiyor, güvenli sayılamaz.
+    """
+    worst: Dict[str, Any] = dict(parsed.measurements)
+    incomplete: List[str] = []
+    for name, rows in parsed.stepped_measurements.items():
+        values = [row.get(name) for row in rows]
+        if values and all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values):
+            worst[name] = max(abs(float(v)) for v in values)
+        else:
+            worst.pop(name, None)
+            incomplete.append(name)
+    return worst, incomplete
+
+
 def _component_safety(
-    comp: str, spec: Dict[str, Any], measurements: Dict[str, Any], derating: Dict[str, float]
+    comp: str, spec: Dict[str, Any], measurements: Dict[str, Any], derating: Dict[str, float],
+    incomplete: Sequence[str] = (),
 ) -> Dict[str, Any]:
     """Bir bileşenin ölçülen en kötü gerilim ve gücünü nominal sınırla ve derating sınırıyla karşılaştırır."""
-    measured = _measured_stress(measurements, comp)
+    measured = _measured_stress(measurements, comp, incomplete)
     v_factor = derating["voltage_semiconductor"] if comp[:1].upper() in ("Q", "D") else derating["voltage"]
     checks = []
     rated_v = spec.get("max_voltage") or spec.get("v_max") or spec.get("v_ceo_max")
@@ -1150,7 +1183,10 @@ def _component_safety(
     comp_status = "PASS" if checks else "UNCHECKED"
     details = [] if checks else ["Tanınan sınır yok (max_voltage / max_power)."]
     for label, unit, prefix, value, rated, factor in checks:
-        if value is None:
+        if value is None and prefix in measured:   # ölçüm var ama en az bir adımda başarısız
+            status = "UNCHECKED"
+            details.append(f"{label} ölçümü en az bir adımda başarısız: en kötü adım bilinmiyor, güvenli sayılmadı.")
+        elif value is None:
             status = "UNCHECKED"
             details.append(f"{label} ölçümü yok: ör. '.meas tran {prefix}_{comp.lower()} MAX ...' ekleyin.")
         else:
@@ -1193,9 +1229,9 @@ def _tool_design_safety(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter
             "status": "ERROR",
             "message": f"Devre simülasyon logu bulunamadı: '{name}'. Önce devreyi simüle edin.",
         }
-    measurements = LogParser.parse_file(log_file).measurements
+    measurements, incomplete = _worst_case_measurements(LogParser.parse_file(log_file))
 
-    results = [_component_safety(comp, spec, measurements, derating)
+    results = [_component_safety(comp, spec, measurements, derating, incomplete)
                for comp, spec in ratings.items() if isinstance(spec, dict)]
     worst = max((r["status"] for r in results), key=lambda s: _SAFETY_RANK[s], default="UNCHECKED")
     return {
@@ -1224,7 +1260,9 @@ def _monte_carlo_netlist(content: str, tolerances: Dict[str, Any]) -> str:
             m = param_re.search(mc_content)
             if m:
                 old_p = m.group(2)
-                mc_content = param_re.sub(rf"\g<1>{{mc({old_p}, {tol_float})}}", mc_content, count=1)
+                # Değer dilimle değiştirilir: re.sub'ın şablon dizgesi değerdeki '\n' kaçışını satır sonuna çevirirdi ve
+                # oluşturulurken denetlenen tek .param satırı LTspice'a yeni bir direktif olarak giderdi.
+                mc_content = f"{mc_content[:m.start(2)]}{{mc({old_p}, {tol_float})}}{mc_content[m.end(2):]}"
     return insert_before_end(mc_content, nominal_params)
 
 
@@ -1287,6 +1325,10 @@ def _tool_monte_carlo(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) 
         }
 
     mc_content = _monte_carlo_netlist(netlist_file.read_text(encoding="utf-8", errors="ignore"), tolerances)
+    # LTspice'a giden metin bu: kayıtlı netlist oluşturulurken denetlendi, dönüşüm ve sonradan konan dosya denetlenmedi.
+    refused = _refused_file_access(mc_content, "netlist")
+    if refused:
+        return refused
     res = adapter.run_netlist(
         netlist_content_or_path=mc_content,
         circuit_name=f"{name}_mc",
