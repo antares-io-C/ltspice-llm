@@ -1432,6 +1432,10 @@ MUTANTS = [
      '    refused = _refused_file_access(apply_parameters(content, params).content if params else content, "netlist")\n',
      '    refused = _refused_file_access(apply_parameters(content, params).content, "netlist") if params else None\n',
      'inceleme 11-08: parametresiz modify_parameters denetlenmez', ['tests/test_netlist_policy.py']),
+    ('ltspice_llm/adapter.py',
+     '                old_enough = max_age_seconds <= 0 or now - st.st_mtime >= max_age_seconds',
+     '                old_enough = now - st.st_mtime >= max_age_seconds',
+     'inceleme 11-08: cleanup_workspace(0) saatin ilerisindeki dosyayı atlar', ['tests/test_adapter_platform.py']),
 ]
 
 

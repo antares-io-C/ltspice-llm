@@ -1835,7 +1835,10 @@ class LTSpiceAdapter:
         if max_age_seconds is not None:
             now = time.time()
             for path, st in self._workspace_artifacts():
-                if now - st.st_mtime >= max_age_seconds and self._unlink_artifact(path):
+                # 0 hepsidir: Windows'ta Python 3.12'nin saati 15,6 ms adımlı, az önce yazılan dosyanın damgası saatin
+                # ilerisinde kalabiliyor ve karşılaştırmayla atlanıyordu (2026-11-08, ölçüldü).
+                old_enough = max_age_seconds <= 0 or now - st.st_mtime >= max_age_seconds
+                if old_enough and self._unlink_artifact(path):
                     removed += 1
         if max_total_mb is not None:
             removed += self._enforce_quota(float(max_total_mb) * 1e6)

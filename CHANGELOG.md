@@ -17,6 +17,9 @@ Bağımsız inceleme (2026-11-08) düzeltmeleri:
   basamağa yuvarlanır. Ondalığa yuvarlama ns, µA ve pF düzeyindeki değerleri 0 gösteriyordu (`tau` = 0.000999668 s
   istatistikte 0.001 oluyordu).
 - `.ferret` ayrıca denetlenmez: LTspice 26.1.1 "This directive is no longer supported" der, ağa ve diske dokunmaz (ölçüldü).
+- `cleanup_workspace(max_age_seconds=0)` belgedeki gibi hepsini siler. Windows'ta Python 3.12'nin saati 15,6 ms adımlı;
+  az önce yazılan dosyanın zaman damgası saatin ilerisinde kalınca dosya atlanıyordu (400 dosyanın 45'inde, ölçüldü).
+  Haftalık işte `test_files_that_cannot_be_deleted_are_reported_not_raised` bu yüzden rastgele düşüyordu.
 
 - Ajan skill'leri (`.agents/skills/`, Agent Skills biçimi): `narrative-pptx` (JSON şemadan düzenlenebilir `.pptx`,
   yedi düzen, örnek şema `assets/example_spec.json`, geometri ve görsel denetim) ve `explainer-gif` (genel tarama,

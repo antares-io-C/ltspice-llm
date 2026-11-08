@@ -231,6 +231,20 @@ def test_schematic_to_netlist_timeout_is_an_error_and_still_cleans_up(tmp_path, 
     assert list(seen[0].parent.iterdir()) == []
 
 
+def test_cleanup_with_zero_age_removes_files_whose_timestamp_is_ahead_of_the_clock(tmp_path):
+    """Belge: max_age_seconds=0 hepsini siler. Windows'ta Python 3.12'nin time.time()'ı 15,625 ms adımlıdır
+    (GetSystemTimeAsFileTime), dosya zaman damgası hassastır: az önce yazılan 400 dosyanın 45'inde damga saatin
+    ilerisindeydi (Python 3.12.13, ölçüldü 2026-11-08; 3.14'te 0). Bu dosyalar atlanıyordu ve haftalık işte
+    test_files_that_cannot_be_deleted_are_reported_not_raised düştü. Damga burada bilerek 1 sn ileri alınır."""
+    ad = LTSpiceAdapter(executable_path=sys.executable, workspace_dir=tmp_path)
+    net = tmp_path / "rc.net"
+    net.write_text("* rc\n", encoding="utf-8")
+    ahead = time.time() + 1.0
+    os.utime(net, (ahead, ahead))
+    assert ad.cleanup_workspace(0) == 1
+    assert not net.exists()
+
+
 def test_files_that_cannot_be_deleted_are_reported_not_raised(tmp_path, monkeypatch, caplog):
     ad = LTSpiceAdapter(executable_path=sys.executable, workspace_dir=tmp_path)
     (tmp_path / "rc.net").write_text("* rc\n", encoding="utf-8")
