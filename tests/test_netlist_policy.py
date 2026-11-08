@@ -226,3 +226,13 @@ def test_modify_parameters_checks_the_stored_netlist_without_parameters(tmp_path
     (tmp_path / "m.net").write_text("* t\nV1 a 0 1\nR1 a 0 1k\n.wave C:/x.wav 16 8k V(a)\n.op\n.end\n", encoding="utf-8")
     res = handle_tool_call("modify_parameters", {"circuit_name": "m"}, adapter=adapter)
     assert res["status"] == "ERROR" and res["message"].count("dosya yazar (.wave)") == 1
+
+
+@pytest.mark.parametrize("value, path", [("PWL file=C:/data.txt", "C:/data.txt"), ("wavefile=C:/in.wav", "C:/in.wav")])
+def test_schematic_value_reading_a_file_is_checked_as_a_schematic(value, path):
+    """Şema aracı türü 'asc' verir; orada SYMATTR değerindeki file=/wavefile= yalnız şema yorumuyla görülür. 'auto' iki
+    yorumu birleştirdiği için bu dalı tek başına sınamaz: haftalık iş (2026-11-08) bu dalı kapatan mutantın sağ
+    kaldığını gösterdi. Kaynak: CIRCUIT-ELEMENTS-REFERENCE "PWL FILE=" ve "wavefile=" (bu dosyanın başı)."""
+    asc = f"Version 4\nSHEET 1 880 680\nSYMBOL voltage 0 0 R0\nSYMATTR InstName V1\nSYMATTR Value {value}\n"
+    problems = file_access_problems(asc, kind="asc")
+    assert len(problems) == 1 and problems[0].endswith(f"dosyayı okur ({path}).")
