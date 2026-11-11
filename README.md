@@ -50,6 +50,10 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
   simulated circuits and gives the before/after difference of their `.meas` results; `export_waveforms_csv` writes
   `.raw` traces to CSV for Excel, MATLAB or pandas. Both are in the extended tool set (`include_extended=True`).
   [docs/GUIDE.md](docs/GUIDE.md#comparing-two-circuits)
+- **Turn results into slides and animated GIFs.** Two agent skills build an editable `.pptx` deck and looping waveform
+  GIFs from simulation results; the end-to-end example runs LTspice and produces the report, two GIFs and a deck.
+  [examples/19_simulation_to_slides.py](examples/19_simulation_to_slides.py),
+  [agent skills](#agent-skills-slides-and-animated-gifs)
 
 Also included: reading, editing and generating `.asc` schematics and finding unconnected pins
 (see [docs/GUIDE.md](docs/GUIDE.md)).

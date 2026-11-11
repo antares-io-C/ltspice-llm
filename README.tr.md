@@ -50,6 +50,10 @@ LLM ya da Python ──(devre)──► ltspice-llm ──► LTspice (arka plan
   hangi netlist değişkenlerinin değiştiğini ve `.meas` sonuçlarının önce/sonra farkını verir; `export_waveforms_csv`
   `.raw` izlerini Excel, MATLAB ya da pandas için CSV'ye yazar. İkisi de genişletilmiş araç kümesindedir
   (`include_extended=True`). [docs/KILAVUZ.md](docs/KILAVUZ.md)
+- **Sonuçları sunuma ve hareketli GIF'e dökün.** İki ajan skill'i simülasyon sonuçlarından düzenlenebilir bir `.pptx`
+  sunum ve döngülü dalga formu GIF'leri üretir; uçtan uca örnek LTspice'ı koşar, raporu, iki GIF'i ve sunumu üretir.
+  [examples/19_simulation_to_slides.py](examples/19_simulation_to_slides.py),
+  [ajan skill'leri](#ajan-skillleri-sunum-ve-hareketli-gif)
 
 Ayrıca: `.asc` şemalarını okuma, değiştirme, üretme ve bağlantısız pinleri bulma (bkz. [docs/KILAVUZ.md](docs/KILAVUZ.md)).
 

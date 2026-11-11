@@ -249,3 +249,9 @@ floor/ceil, `.1u`/`4k7` yazımı) yeşil testlerin altında duruyordu (2026-10-0
   `test_integration_*`) LTspice yoksa atlanır. Uyarılar hata sayılır, tek test 120 sn'de kesilir (`pyproject.toml`).
 - Büyük tasarım/doğrulama işleri `docs/MISSION_BRIEF_TEMPLATE.md` ile başlar: başarı ölçütleri `.meas` eşikleri,
   özerklik zarfı ve kanıt (`SimulationReport`).
+- **Tanıtım güncel kalır** (kullanıcının kuralı, 2026-11-11). Kullanıcıya görünen bir özellik eklenince ya da değişince
+  güncelle; depoyu ilk açan yeni özelliği orada görmeli:
+  - `README.md`'nin "What you can do" ve `README.tr.md`'nin "Neler yapabilirsiniz?" listesi.
+  - GitHub'daki depo açıklaması (About): `gh repo edit --description`. Herkese açık değişikliktir; onayla yap.
+
+  O gün sunum ve GIF skill'leri yalnız sayfanın aşağısındaydı, About yalnız "10 tool schemas" diyordu.
