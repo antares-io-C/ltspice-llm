@@ -46,9 +46,13 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
   [examples/10_performance_fast_paths.py](examples/10_performance_fast_paths.py)
 - **Check a formula against LTspice and write a report.** A single-file HTML report with waveforms, measurement tables
   and reliability checks. [examples/15_hotplug_damping_validation.py](examples/15_hotplug_damping_validation.py)
+- **Compare two runs and export waveforms.** `compare_circuits` tells which netlist variables differ between two
+  simulated circuits and gives the before/after difference of their `.meas` results; `export_waveforms_csv` writes
+  `.raw` traces to CSV for Excel, MATLAB or pandas. Both are in the extended tool set (`include_extended=True`).
+  [docs/GUIDE.md](docs/GUIDE.md#comparing-two-circuits)
 
 Also included: reading, editing and generating `.asc` schematics and finding unconnected pins
-(see [docs/KILAVUZ.md](docs/KILAVUZ.md), Turkish).
+(see [docs/GUIDE.md](docs/GUIDE.md)).
 
 ## ltspice-llm or LTspice's own MCP server?
 
@@ -238,8 +242,8 @@ python scripts/check.py --full   # tests and examples against a real LTspice
 
 ## More
 
-- [docs/KILAVUZ.md](docs/KILAVUZ.md) (Turkish): every feature, API details, performance measurements, the livelock
-  guard and the full list of known limitations
+- [docs/GUIDE.md](docs/GUIDE.md): every feature, API details, performance measurements, the livelock
+  guard and the full list of known limitations (Turkish original: [docs/KILAVUZ.md](docs/KILAVUZ.md))
 - [docs/](docs/) (Turkish): measurement-backed lessons on LTspice and performance
 - [CHANGELOG.md](CHANGELOG.md): release history
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute

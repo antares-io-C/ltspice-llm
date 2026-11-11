@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ltspice_procs import batch_processes, describe  # noqa: E402
+from ltspice_procs import batch_processes, describe, is_antigravity  # noqa: E402
 
 ROOT = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -26,7 +26,7 @@ from check import asc_problem, walk  # noqa: E402
 
 STATE_DIR = ROOT / ".claude" / "hooks" / ".state"
 STATE = STATE_DIR / "stop_gate.json"
-PY_ROOTS = ["ltspice_llm", "tests", "examples", "scripts", ".claude/hooks"]
+PY_ROOTS = ["ltspice_llm", "tests", "examples", "scripts", ".claude/hooks", ".agents"]
 PY_FILES = ["interactive_designer.py", "pyproject.toml"]
 GATE_TIMEOUT = 150
 MAX_REASON = 6000
@@ -67,6 +67,10 @@ def main():
         data = json.load(sys.stdin)
     except ValueError:
         data = {}
+    agy = is_antigravity(data)
+    if agy and (data.get("fullyIdle") is False or data.get("terminationReason", "NO_TOOL_CALL") != "NO_TOOL_CALL"):
+        json.dump({"decision": "stop"}, sys.stdout, ensure_ascii=False)
+        return 0
     state = load_state()
     problems, notes = [], []
 
@@ -105,6 +109,17 @@ def main():
                                     "zayıflatma; düzeltme bir karar gerektiriyorsa açıkla ve dur:\n"
                                     + out[-MAX_REASON:])
     save_state(state)
+
+    if agy:
+        if problems:
+            json.dump({"decision": "continue", "reason": "Bitirmeden önce düzelt:\n- " + "\n- ".join(problems)},
+                      sys.stdout, ensure_ascii=False)
+        else:
+            out_agy = {"decision": "stop"}
+            if notes:
+                out_agy["reason"] = "\n".join(n[:1500] for n in notes)
+            json.dump(out_agy, sys.stdout, ensure_ascii=False)
+        return 0
 
     result = {}
     if problems and not data.get("stop_hook_active"):

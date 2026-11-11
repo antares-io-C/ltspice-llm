@@ -46,6 +46,10 @@ LLM ya da Python ──(devre)──► ltspice-llm ──► LTspice (arka plan
   [examples/10_performance_fast_paths.py](examples/10_performance_fast_paths.py)
 - **Bir formülü LTspice ile sınayıp rapor yazın.** Dalga formları, ölçüm tabloları ve güvenilirlik denetimleriyle tek
   dosyalık HTML rapor. [examples/15_hotplug_damping_validation.py](examples/15_hotplug_damping_validation.py)
+- **İki koşumu karşılaştırın, dalga formlarını dışa aktarın.** `compare_circuits` simüle edilmiş iki devre arasında
+  hangi netlist değişkenlerinin değiştiğini ve `.meas` sonuçlarının önce/sonra farkını verir; `export_waveforms_csv`
+  `.raw` izlerini Excel, MATLAB ya da pandas için CSV'ye yazar. İkisi de genişletilmiş araç kümesindedir
+  (`include_extended=True`). [docs/KILAVUZ.md](docs/KILAVUZ.md)
 
 Ayrıca: `.asc` şemalarını okuma, değiştirme, üretme ve bağlantısız pinleri bulma (bkz. [docs/KILAVUZ.md](docs/KILAVUZ.md)).
 
@@ -238,7 +242,7 @@ python scripts/check.py --full   # testler ve örnekler gerçek LTspice ile
 ## Daha fazlası
 
 - [docs/KILAVUZ.md](docs/KILAVUZ.md): tüm özellikler, API ayrıntıları, performans ölçümleri, kilitlenme koruması ve
-  bilinen sınırlamaların tamamı
+  bilinen sınırlamaların tamamı (İngilizce: [docs/GUIDE.md](docs/GUIDE.md))
 - [docs/](docs/): LTspice ve performans üzerine ölçümle doğrulanmış dersler
 - [CHANGELOG.md](CHANGELOG.md): sürüm geçmişi
 - [CONTRIBUTING.md](CONTRIBUTING.md): katkı ve kalite kapısı

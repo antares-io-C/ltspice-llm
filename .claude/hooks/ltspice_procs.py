@@ -173,3 +173,11 @@ def file_version(path):
         return ".".join(str(p) for p in parts)
     except (OSError, AttributeError, ValueError):
         return None
+
+
+def is_antigravity(event):
+    """Girdi Antigravity'nin hooks.json sözleşmesinden mi geliyor (camelCase protojson alanları)?"""
+    return isinstance(event, dict) and any(
+        k in event for k in ("toolCall", "workspacePaths", "conversationId", "terminationReason")
+    )
+

@@ -26,9 +26,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ltspice_procs import batch_processes, describe, owned_by_pytest  # noqa: E402
+from ltspice_procs import batch_processes, describe, is_antigravity, owned_by_pytest  # noqa: E402
 
 BYPASS = re.compile(r"LTSPICE_LLM_GUARD['\"]?\s*=\s*['\"]?off", re.I)
+GIT_VALUE_OPTS = {"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
 # Testleri --full ile LTspice'la koşan betikler (pytest gibi); --full olmadan LTSPICE_EXE'yi kendileri kapatır
 FULL_GATES = {"check.py", "flows.py", "isolation.py"}
 PYTHON = re.compile(r"^(?:pythonw?(?:\d+(?:\.\d+)*)?|py)$", re.I)
@@ -138,12 +139,57 @@ def runs_ltspice_tests(cmd, shell="Bash", env=None):
     return False
 
 
-def deny(reason):
-    json.dump({"hookSpecificOutput": {
+def _git_hazard(command):
+    program, args = _program(command[0]), command[1:]
+    if SHELLS.get(program):
+        flag = next((i for i, arg in enumerate(args) if arg.lower() in SHELL_FLAGS), None)
+        if flag is None:
+            return None
+        inner = args[flag + 1:] if program == "cmd" else args[flag + 1:flag + 2]
+        return destructive_git(" ".join(inner))
+    if program != "git":
+        return None
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        i += 2 if args[i] in GIT_VALUE_OPTS else 1
+    if i >= len(args):
+        return None
+    sub, rest = args[i].lower(), [a.lower() for a in args[i + 1:]]
+    if sub == "clean":
+        return "git clean"
+    if sub == "reset" and "--hard" in rest:
+        return "git reset --hard"
+    return None
+
+
+def destructive_git(cmd):
+    """Komut ``git clean`` ya da ``git reset --hard`` çalıştırıyorsa adını döner, yoksa None."""
+    for words in segments(cmd):
+        i = 1 if words[0].lower() in ("export", "set") else 0
+        while i < len(words) and (ASSIGNMENT.match(words[i]) or words[i].lower() in WRAPPERS):
+            if words[i].lower() == "timeout":
+                while i + 1 < len(words) and words[i + 1].startswith("-"):
+                    i += 1
+                i += 1
+            i += 1
+        if i < len(words) and (hazard := _git_hazard(words[i:])):
+            return hazard
+    return None
+
+
+def allow(agy=False):
+    """Sorun yok: hiçbir şey basma. Antigravity'de ``"decision": "allow"`` aracı kullanıcı onayı olmadan otomatik
+    çalıştırır (Antigravity hooks belgesi); bu, kullanıcının komut onayı politikasını atlatırdı."""
+    return 0
+
+
+def deny(reason, agy=False):
+    out = {"decision": "deny", "reason": reason} if agy else {"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",
         "permissionDecisionReason": reason,
-    }}, sys.stdout, ensure_ascii=False)
+    }}
+    json.dump(out, sys.stdout, ensure_ascii=False)
     return 0
 
 
@@ -153,25 +199,32 @@ def main():
         data = json.load(sys.stdin)
     except ValueError:
         return 0
-    cmd = str((data.get("tool_input") or {}).get("command", ""))
+    agy = is_antigravity(data)
+    if agy:
+        cmd = str(((data.get("toolCall") or {}).get("args") or {}).get("CommandLine", ""))
+        data = {**data, "tool_name": "PowerShell" if sys.platform == "win32" else "Bash"}
+    else:
+        cmd = str((data.get("tool_input") or {}).get("command", ""))
+    if hazard := destructive_git(cmd):
+        return deny(f"{hazard} geri alınamaz; izin kurallarıyla engellidir.", agy)
     if BYPASS.search(cmd):
-        return 0
+        return allow(agy)
     is_pytest = runs_ltspice_tests(cmd, data.get("tool_name") or "Bash")
     if not is_pytest and not USES_LTSPICE.search(cmd):
-        return 0
+        return allow(agy)
     batch = batch_processes()
     if not batch:
-        return 0
+        return allow(agy)
     pytest_runs = [p for p in batch if owned_by_pytest(p)]
     tail = (" Arka plan işinin bitmesini bekle (Monitor/görev bildirimi). Süreç takılmışsa (.log/.raw büyümüyorsa) "
             "logunu oku ve kullanıcıya sor. Kullanıcı açıkça onaylarsa komutun başına `LTSPICE_LLM_GUARD=off ` ekle.")
     if is_pytest:
         return deny(f"Çalışan batch LTspice var: {describe(batch)}. pytest cpu_guard bütçesini paylaşmaz "
-                    f"(tests/conftest.py); eşzamanlı koşum livelock'a girebilir." + tail)
+                    f"(tests/conftest.py); eşzamanlı koşum livelock'a girebilir." + tail, agy)
     if pytest_runs:
         return deny(f"pytest'e ait batch LTspice çalışıyor: {describe(pytest_runs)}. Bu komut LTspice "
-                    f"başlatabilir ve pytest'in iş parçacığı bütçesini görmez; livelock'a girebilir." + tail)
-    return 0
+                    f"başlatabilir ve pytest'in iş parçacığı bütçesini görmez; livelock'a girebilir." + tail, agy)
+    return allow(agy)
 
 
 if __name__ == "__main__":

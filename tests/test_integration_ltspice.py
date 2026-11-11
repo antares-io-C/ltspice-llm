@@ -6,6 +6,8 @@ FAIL'ed ölçümler, etkisiz parametre değişikliği, steplenmiş raw okuma) bi
 """
 
 import base64
+import csv
+import math
 import re
 import shutil
 
@@ -460,3 +462,50 @@ def test_schematic_file_finds_the_symbol_next_to_it(adapter, tmp_path):
     assert res.success, res.errors
     assert res.measurements["vout"] == pytest.approx(20 / 3, rel=1e-6)
     assert sorted(p.name for p in tmp_path.iterdir()) == ["divider.asc", "myres.asy"]
+
+
+# --------------------------------------------------------------------------- karşılaştırma ve CSV
+CMP_RC = """* compare rc
+V1 in 0 PULSE(0 5 0 1n 1n 10m 20m)
+R1 in out 1k
+C1 out 0 1u
+.tran 8m
+.meas tran t50 WHEN V(out)=2.5 RISE=1
+.end
+"""
+
+
+def test_compare_circuits_attributes_the_delay_change_to_the_resistor(adapter):
+    """Elle: RC basamak yanıtı %50'ye t50 = R C ln 2'de ulaşır. R1 1k -> 2k (C1 = 1u): 0,693 ms -> 1,386 ms, +%100.
+    Tek değişen R1 olduğu için fark ona atfedilebilir (GEMINI.md: bir seferde tek değişken)."""
+    for name, netlist in (("it_cmp_a", CMP_RC), ("it_cmp_b", CMP_RC.replace("R1 in out 1k", "R1 in out 2k"))):
+        created = handle_tool_call("create_or_replace_circuit", {"circuit_name": name, "netlist_code": netlist},
+                                   adapter=adapter)
+        assert created["status"] == "SUCCESS", created
+    res = handle_tool_call("compare_circuits", {"circuit_a": "it_cmp_a", "circuit_b": "it_cmp_b"}, adapter=adapter)
+    assert res["status"] == "SUCCESS" and res["warnings"] == []
+    assert [(c["kind"], c["name"], c["a"], c["b"]) for c in res["changes"]] == [
+        ("element", "R1", "R1 in out 1k", "R1 in out 2k")]
+    assert res["single_variable"] is True
+    (row,) = [r for r in res["measurements"] if r["name"] == "t50"]
+    assert row["a"] == pytest.approx(1e-3 * math.log(2), rel=5e-3)
+    assert row["b"] == pytest.approx(2e-3 * math.log(2), rel=5e-3)
+    assert row["relative_change_percent"] == pytest.approx(100.0, abs=1.0) and row["same_definition"] is True
+
+
+def test_export_waveforms_csv_of_a_real_run(adapter):
+    """Elle: V(out)(t) = 5 (1 - exp(-t / RC)); RC = 1 ms, t = 8 ms -> 4,99832 V. Zaman ekseni 0 - 8 ms (`.tran 8m`).
+    8 ms'de V(in) = 5 V da 1,7 mV yakındır; bu yüzden bütün iz formülle sınanır. Tolerans 5 mV: LTspice'ın göreli hata
+    toleransı reltol = 0.001 (ADI SIMULATION-COMMANDS-REFERENCE ".OPTIONS") × 5 V. V(in) formülden 5 V'a kadar sapar."""
+    created = handle_tool_call("create_or_replace_circuit", {"circuit_name": "it_csv", "netlist_code": CMP_RC},
+                               adapter=adapter)
+    assert created["status"] == "SUCCESS", created
+    res = handle_tool_call("export_waveforms_csv", {"circuit_name": "it_csv", "signals": ["V(out)"]}, adapter=adapter)
+    assert res["status"] == "SUCCESS" and res["csv_saved_at"] == str(adapter.workspace_dir / "it_csv.csv")
+    with open(res["csv_saved_at"], newline="", encoding="utf-8") as handle:
+        header, *rows = list(csv.reader(handle))
+    assert header == res["columns"] == ["time", "V(out)"] and len(rows) == res["rows"] > 2
+    assert float(rows[0][0]) == 0.0 and float(rows[-1][0]) == pytest.approx(8e-3, rel=1e-9)
+    assert float(rows[-1][1]) == pytest.approx(5 * (1 - math.exp(-8)), rel=1e-3)
+    worst = max(abs(float(v) - 5 * (1 - math.exp(-float(t) / 1e-3))) for t, v in rows)
+    assert worst <= 5e-3

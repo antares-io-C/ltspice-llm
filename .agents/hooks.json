@@ -1,0 +1,40 @@
+{
+  "ltspice-harness": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python ../.claude/hooks/session_start.py",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python ../.claude/hooks/pre_ltspice_guard.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "edit_file|write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python ../.claude/hooks/guard_tests.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python ../.claude/hooks/stop_gate.py",
+        "timeout": 180
+      }
+    ]
+  }
+}

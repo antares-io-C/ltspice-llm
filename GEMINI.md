@@ -18,6 +18,10 @@ her komut için yeniden onay istenir. Bu yüzden:
   İş bitince dosyayı sil.
 - Komutları `&&`, `;`, `|` ile zincirleme. Her komutu ayrı çalıştır.
 - Dosya listelemek, okumak ve aramak için terminal yerine dosya araçlarını kullan.
+- Windows'ta çıktı boruya ya da dosyaya giderken Python ANSI kod sayfasını (`cp1252`/`cp1254`) kullanır ve `Ω, →, ✓`
+  gibi işaretlerde çöker. Böyle komutlarda `PYTHONIOENCODING=utf-8` ver (`PYTHONUTF8=1` kullanma: `open()` varsayılanını
+  da UTF-8 yapar).
+- `git clean` ve `git reset --hard` geri alınamaz; kullanma (`pre_ltspice_guard.py` PreToolUse hook'u da engeller).
 
 ## Performans ve eşzamanlılık kuralları
 
@@ -45,6 +49,13 @@ Ayrıntı ve ölçümler: `docs/LESSONS_LEARNED_PERFORMANCE.md`. Önce onu oku.
 - Paralellik kazancı bu makinede donanımla sınırlı (i7-1255U hibrit, 15 W): en iyi ~2,4x, tavan ~3,3x.
 - Bir seçeneğin uygulandığını logdan doğrula (`Maximum thread count: N`, `method = Gear`, `syntax error` yok).
   Zaman aşımına uğrayan koşumun logunu oku: hata değil livelock olabilir.
+- `tests/conftest.py` her pytest oturumuna ayrı `cpu_guard` kilit dizini verir, yani pytest'in LTspice koşumları
+  başka süreçlerle iş parçacığı bütçesi paylaşmaz. Batch LTspice çalışırken LTspice'lı pytest'i (ve pytest'in LTspice'ı
+  çalışırken örnek/`.scratch` betiklerini) başlatma (`pre_ltspice_guard.py` PreToolUse hook'u engeller). LTspice'sız
+  alt küme için `LTSPICE_EXE` var olmayan bir dosyayı göstermeli (PowerShell: `$env:LTSPICE_EXE='C:\yok\x.exe'`,
+  Bash: `LTSPICE_EXE=C:/yok/x.exe`; ~10 sn).
+- Bir korumayı ölçerken önce korumasız kolun gerçekten sızdırdığını gör: Edge'in yerel ağ koruması `127.0.0.1`
+  isteklerini kestiği için önlemsiz sahne de "0 istek" verdi, ölçüm hiçbir şey göstermiyordu.
 
 ## Simülasyon doğrulama kuralları
 
@@ -97,7 +108,8 @@ Her simülasyon süreci (doğrulama, tasarım, inceleme, yeniden koşum) kullan�
   bunu etkinin notunda söyle.
 - Raporu üreten betik `examples/` altında kalır. Rapor `reports/` altına yazılır; git'e girmez, betik yeniden
   üretir. Kullanıcıya dosya yolunu ver.
-- Raporu bir kez görsel olarak kontrol et (ekran görüntüsü): etiket çakışması, boş değer (`—`), taşma.
+- Raporu bir kez görsel olarak kontrol et (ekran görüntüsü): etiket çakışması, boş değer (`—`), taşma
+  (`msedge --headless=new --window-size=1280,12000 --screenshot=<png> file:///<rapor>`).
 - Rapor tuzakları (2026-10-06):
   - Tekrarlanan koşumlara ayrı `circuit_name` ver: aynı ad önceki sonucun `.raw`'ını geçersiz kılar, `read_trace`
     hata verir.
@@ -149,7 +161,7 @@ floor/ceil, `.1u`/`4k7` yazımı) yeşil testlerin altında duruyordu (2026-10-0
 
 - **Testi geçirmek için testi değiştirme.** Test silme, skip/xfail ekleme, assert ya da tolerans gevşetme yok.
   Test ya da görev yanlış görünüyorsa dur ve nedenini kaynağıyla kullanıcıya söyle; durmak kabul edilebilir bir
-  sonuçtur. (Claude Code'da `guard_tests.py` hook'u bu tür düzenlemede kullanıcıya sorar.)
+  sonuçtur. (`guard_tests.py` PreToolUse hook'u hem Antigravity hem Claude Code'da bu tür düzenlemede kullanıcıya sorar.)
 - **Beklenen değer koddan değil kaynaktan gelir:** IEC 60063, ADI referansı (belge + başlık), datasheet
   (`docs/references/text/`, sayfa), elle hesap ya da `examples/` altındaki bir betiğin LTspice ölçümü (sürümüyle).
   Kodu çalıştırıp çıktısını assert'e yapıştırma; standart tek cevap veriyorsa "a ya da b" kabul etme. Kaynağı
@@ -193,8 +205,10 @@ floor/ceil, `.1u`/`4k7` yazımı) yeşil testlerin altında duruyordu (2026-10-0
   sonucuna bak (`gh run list`; kırık job'ın kaydı `gh run view <id> --log-failed`).
 - Test gücü: `python scripts/mutants.py`. Bir hata düzelttiğinde kataloğa "düzeltmeyi geri al" mutantını ekle;
   hepsi ölmeli. Mutantı yalnız LTspice'ın kurulu verisine bakan bir test öldürüyorsa `NEEDS_LTSPICE_DATA`'ya yaz: veri
-  yokken test atlanır, mutant sağ kalmış görünür ve LTspice'sız haftalık iş kırmızı olur. Claude Code'da test
-  değişikliklerinden sonra `test-reviewer` subagent'ı bağımsız inceleme yapar. Mutantı hangi testin öldürdüğüne bak. Yanlış nedenle ölen mutant (sahte süreçte olmayan metot, uç noktayı
+  yokken test atlanır, mutant sağ kalmış görünür ve LTspice'sız haftalık iş kırmızı olur. Test değişikliklerinden
+  sonra `test-reviewer` alt ajanıyla (`.agents/agents/test-reviewer.md` ve `.claude/agents/test-reviewer.md`;
+  Antigravity'de `define_subagent` + `invoke_subagent` ile) bağımsız inceleme yap; bulguları doğrulamadan uygulama.
+  Mutantı hangi testin öldürdüğüne bak. Yanlış nedenle ölen mutant (sahte süreçte olmayan metot, uç noktayı
   düşüren seyreltme, gövdesi silinip sözdizimi hatası veren döngü: çıktıda öldüren test adı yok) boşluğu gizler.
 - Bu kalıplar yanlış kodla da geçer (2026-10-06'da altı mutant sağ çıktı):
   - Sıralamayı tek adayla sınamak.
@@ -230,7 +244,7 @@ floor/ceil, `.1u`/`4k7` yazımı) yeşil testlerin altında duruyordu (2026-10-0
   - API değiştirince örnek testleri de yeşil olmalı. Etkileşimli soru soran örneğe etkileşimsiz kip ekle.
 - **Kalite kapısı:** `python scripts/check.py` (`.asc` bütünlüğü + ruff F/B + LTspice'sız testler + use case coverage tanığı, ~20 sn);
   `--full` testleri ve örnekleri LTspice ile koşar (i7-7500U'da ~8 dk; örneksiz `pytest -m "not examples"` ~1.5 dk). Bir işi "bitti" demeden önce çalıştır ve özet satırını göster.
-  CI ve Claude Code Stop hook'u aynı komutu kullanır.
+  CI ve Stop hook'u (`.claude/hooks/stop_gate.py`; hem `.agents/hooks.json` hem `.claude/settings.json` üzerinden) aynı komutu kullanır.
 - Testler tek tek: `python -m pytest tests -q`. LTspice gerektiren testler (`tests/test_adapter.py`,
   `test_integration_*`) LTspice yoksa atlanır. Uyarılar hata sayılır, tek test 120 sn'de kesilir (`pyproject.toml`).
 - Büyük tasarım/doğrulama işleri `docs/MISSION_BRIEF_TEMPLATE.md` ile başlar: başarı ölçütleri `.meas` eşikleri,

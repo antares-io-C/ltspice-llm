@@ -9,7 +9,7 @@ bir log olmalı). LTspice güncellendiğinde yeniden çalıştırın:
     python examples/14_record_flow_fixtures.py          # hepsi
     python examples/14_record_flow_fixtures.py mc       # yalnızca adı verilen kayıtlar
 
-Kayıt adları: flow, mc, safety, schematic, crash, mean, stepraw, tstart, ini, measnames.
+Kayıt adları: flow, mc, safety, schematic, crash, mean, stepraw, tstart, ini, measnames, compare.
 
 Kayıtlarda çalışma alanının yolu ``C:\\ws`` olur (log, netlist, ``.raw`` başlığı, ``LTspice.ini``): depo public, gerçek
 yol kullanıcı adını ve klasör düzenini gösterir (``tests/test_fixture_privacy.py``).
@@ -396,9 +396,35 @@ def record_meas_names(workspace):
     print(f"LTspice {adapter.ltspice_version()}: " + " | ".join(shown) + " -> tests/data/ref26_path_keyword.log.txt")
 
 
+# Devre karşılaştırma ve CSV dışa aktarımı (tests/test_compare_export.py), ikisi de ref26_flow_rc'nin RC devresi:
+# - CMP_MEAS_FAIL: hiç gerçekleşmeyen bir ölçüm eklendi. V(out) en çok v_max = 3,59 V (ref26_flow_rc logu) < 10 V, yani
+#   koşul hiç oluşmaz ve log 'Measurement "v_never" FAIL'ed' yazar: compare_circuits'in başarısız ölçüm uyarısı.
+# - CMP_STEP_C: C1 adımlı (1u, 100n), τ = 1 ms ve 0,1 ms. LTspice zaman adımını devrenin kendisine göre seçer; iki
+#   adımın zaman ekseni farklı olmalı (test önce bunu sınar), CSV'de her adım kendi eksenini taşır. LTspice 26.1.1
+#   list değerlerini küçükten büyüğe koştu (logun .step satırları): adım 1 c = 100n, adım 2 c = 1u.
+CMP_MEAS_FAIL = RC.replace(".end\n", ".meas tran v_never FIND V(out) WHEN V(out)=10\n.end\n")
+CMP_STEP_C = RC.replace("C1 out 0 1u", "C1 out 0 {c}").replace(".tran 3m", ".step param c list 1u 100n\n.tran 3m")
+
+
+def record_compare(workspace):
+    adapter = LTSpiceAdapter(workspace_dir=workspace, solver_threads=1)
+    for name, net in (("ref26_cmp_meas_fail", CMP_MEAS_FAIL), ("ref26_cmp_step_c", CMP_STEP_C)):
+        res = adapter.run_netlist(net, circuit_name=name, treat_as_text=True)
+        # Kayıt sınanan ayrıştırıcıya güvenmez: LTspice logu ve .raw'ı yazdı mı?
+        if res.log_path is None or res.raw_path is None:
+            raise SystemExit(f"Kayıt başarısız: {res.errors}")
+        log = LogParser.read_text(res.log_path).replace(str(workspace), r"C:\ws")
+        (DATA / f"{name}.log.txt").write_text(log, encoding="utf-8", newline="")
+        copy_raw(res.raw_path, DATA / f"{name}.raw", workspace)
+        (DATA / f"{name}.net").write_text(net, encoding="utf-8", newline="")
+        shown = [ln for ln in log.splitlines() if "FAIL" in ln or ln.startswith(("v_max", " "))]
+        print(f"LTspice {adapter.ltspice_version()}: {' | '.join(shown)}, raw {res.raw_path.stat().st_size} bayt "
+              f"-> tests/data/{name}.*")
+
+
 RECORDERS = {"flow": record_flow, "mc": record_monte_carlo, "safety": record_safety, "schematic": record_schematic,
              "crash": record_crash, "mean": record_mean, "stepraw": record_step_raw, "tstart": record_tstart,
-             "ini": record_ini, "measnames": record_meas_names}
+             "ini": record_ini, "measnames": record_meas_names, "compare": record_compare}
 
 
 def main(argv=None):

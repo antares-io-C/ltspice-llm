@@ -22,6 +22,8 @@ from .report import SimulationReport
 from .visualizer import WaveformVisualizer
 from .tools import convert_tool_schemas, get_ltspice_tool_schemas, handle_tool_call
 from .agent import CircuitOptimizer, OptimizationResult
+from .compare import compare_measurements, compare_netlists
+from .export import export_waveforms_csv
 from .circuit_agent import AutonomousCircuitAgent
 from .system_prompts import CIRCUIT_DESIGNER_SYSTEM_PROMPT, CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN
 from .quantizer import (
@@ -88,6 +90,9 @@ __all__ = [
     "get_ltspice_tool_schemas",
     "handle_tool_call",
     "CircuitOptimizer",
+    "compare_netlists",
+    "compare_measurements",
+    "export_waveforms_csv",
     "AutonomousCircuitAgent",
     "CIRCUIT_DESIGNER_SYSTEM_PROMPT",
     "CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN",

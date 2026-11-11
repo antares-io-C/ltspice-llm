@@ -19,7 +19,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from .adapter import (
     LTSpiceAdapter,
@@ -31,7 +31,9 @@ from .adapter import (
     _set_element_value,
 )
 from .agent import CircuitOptimizer
+from .compare import _measurement_names, compare_measurements, compare_netlists
 from .diagnostics import SPICEDiagnostics
+from .export import export_waveforms_csv
 from .netlist import file_access_problems, insert_before_end
 from .parasitics import (
     COPPER_MM_PER_OZ,
@@ -503,6 +505,64 @@ def _extended_tool_schemas() -> List[Dict[str, Any]]:
                 "required": ["circuit_name", "param_bounds", "target_metrics"],
             },
         },
+        {
+            "name": "compare_circuits",
+            "description": (
+                "Çalışma alanındaki simüle edilmiş iki devreyi karşılaştırır: netlist farkını (değişen eleman, .param, "
+                ".options seçeneği, analiz komutu) ve ortak .meas ölçümlerinin önce/sonra farkını verir. Tam olarak "
+                "bir değişken değiştiyse 'single_variable' true olur; birden çok değişken değiştiyse ölçüm farkı tek "
+                "bir bileşene atfedilemez. Steplenmiş (.step) koşumlar karşılaştırılmaz."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "circuit_a": {"type": "string", "description": "Referans (önce) devrenin adı."},
+                    "circuit_b": {"type": "string", "description": "Değiştirilmiş (sonra) devrenin adı."},
+                    "measurements": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "İsteğe bağlı: yalnız bu .meas adları karşılaştırılır (varsayılan: ortak "
+                                       "ölçümlerin hepsi).",
+                    },
+                },
+                "required": ["circuit_a", "circuit_b"],
+            },
+        },
+        {
+            "name": "export_waveforms_csv",
+            "description": (
+                "Simüle edilmiş bir devrenin .raw dalga formlarını çalışma alanına '<circuit_name>.csv' olarak yazar "
+                "(Excel, MATLAB, pandas için). Değerler yuvarlanmaz. .ac sonuçlarında her sinyal re(...) ve im(...) "
+                "sütunlarıdır; steplenmiş koşumda ilk sütun 'step' (1'den başlar). Veri araç sonucunda dönmez; dosya "
+                "yolu, satır sayısı ve sütun adları döner."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "circuit_name": {"type": "string", "description": "Dalga formları dışa aktarılacak devrenin adı."},
+                    "signals": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "İsteğe bağlı sinyaller (örn: ['V(out)', 'I(R1)']); verilmezse kayıtlı bütün "
+                                       "izler.",
+                    },
+                    "delimiter": {
+                        "type": "string",
+                        "enum": [",", ";", "tab"],
+                        "description": "Sütun ayırıcı (varsayılan ',').",
+                        "default": ",",
+                    },
+                    "decimal": {
+                        "type": "string",
+                        "enum": [".", ","],
+                        "description": "Ondalık ayırıcı (varsayılan '.'). ',' seçilirse delimiter ';' ya da 'tab' "
+                                       "olmalı (ondalık virgül kullanan bölge ayarları için).",
+                        "default": ".",
+                    },
+                },
+                "required": ["circuit_name"],
+            },
+        },
     ]
 
 
@@ -593,8 +653,8 @@ def get_ltspice_tool_schemas(format: str = "generic", include_extended: bool = F
 
     :param format: ``"generic"`` (varsayılan), ``"openai"``, ``"anthropic"`` veya ``"gemini"``;
         bkz. `convert_tool_schemas`.
-    :param include_extended: True ise şema üretimi, parazitik hesaplama, hot-plug, SOA güvenlik
-        ve Monte Carlo araçlarını da ekler (varsayılan False: temel 10 araç).
+    :param include_extended: True ise şema üretimi, parazitik hesaplama, hot-plug, SOA güvenlik, Monte Carlo,
+        devre karşılaştırma ve CSV dışa aktarım araçlarını da ekler (varsayılan False: temel 10 araç).
     """
     schemas = _generic_tool_schemas()
     if include_extended:
@@ -1348,6 +1408,123 @@ def _tool_monte_carlo(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) 
     return llm_res
 
 
+def _definition_owner(row_name: str, defined: Set[str]) -> str:
+    """
+    Ölçüm satırının geldiği ``.meas`` tanımının adı. Ayrıştırıcı bir ölçüm için ek sonuçlar da üretir (``<ad>_...``:
+    WHEN değeri, karmaşık sonucun fazı ve sanal kısmı); bunlar adı önek olan en uzun tanıma aittir.
+    """
+    folded = row_name.casefold()
+    if folded in defined:
+        return folded
+    owners = [name for name in defined if folded.startswith(name + "_")]
+    return max(owners, key=len, default=folded)
+
+
+def _tool_compare_circuits(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
+    given = {label: args.get(f"circuit_{label}") for label in ("a", "b")}
+    if not all(given.values()):
+        return {"status": "ERROR", "message": "'circuit_a' ve 'circuit_b' gereklidir."}
+    names = {label: sanitize_circuit_name(value) for label, value in given.items()}
+    if names["a"] == names["b"]:
+        return {
+            "status": "ERROR",
+            "message": (f"İki ad da aynı devreyi gösteriyor ('{names['a']}'). Karşılaştırılacak her durumu ayrı "
+                        "circuit_name ile simüle edin."),
+        }
+
+    netlists: Dict[str, str] = {}
+    logs: Dict[str, Any] = {}
+    for label, circuit in names.items():
+        netlist_file = adapter.workspace_dir / f"{circuit}.net"
+        log_file = adapter.workspace_dir / f"{circuit}.log"
+        if not netlist_file.exists():
+            return {"status": "ERROR", "message": f"Devre dosyası bulunamadı: {netlist_file}"}
+        if not log_file.exists():
+            return {
+                "status": "ERROR",
+                "message": f"Devre simülasyon logu bulunamadı: '{circuit}'. Önce devreyi simüle edin.",
+            }
+        netlists[label] = netlist_file.read_text(encoding="utf-8", errors="ignore")
+        logs[label] = LogParser.parse_file(log_file)
+
+    stepped = [names[label] for label in ("a", "b")
+               if logs[label].step_parameters or logs[label].stepped_measurements]
+    if stepped:
+        # Steplenmiş koşumun 'measurements' değeri adımların ortalamasıdır: iki ortalamanın farkı bir bileşenin etkisi değildir.
+        return {
+            "status": "ERROR",
+            "message": (f"Steplenmiş (.step) koşum karşılaştırılamaz: {stepped}. Karşılaştırılacak her durumu .step "
+                        "olmadan, ayrı circuit_name ile simüle edin."),
+        }
+
+    diff = compare_netlists(netlists["a"], netlists["b"])
+    table = compare_measurements(logs["a"].measurements, logs["b"].measurements,
+                                 _signal_list(args.get("measurements")))
+    redefined = {m["name"].casefold() for m in diff["measurement_changes"]
+                 if m["a"] is not None and m["b"] is not None}
+    defined = {m.casefold() for label in ("a", "b") for m in _measurement_names(netlists[label])}
+    for row in table["measurements"]:
+        row["same_definition"] = _definition_owner(row["name"], defined) not in redefined
+
+    warnings: List[str] = []
+    count = diff["changed_variable_count"]
+    if count == 0:
+        warnings.append("İki devrenin netlisti aynı; karşılaştırılacak bir değişken yok.")
+    elif count > 1:
+        warnings.append(f"{count} değişken birden değişti; ölçüm farkı tek bir bileşene atfedilemez "
+                        "(bilerek yapılan köşe durumuysa bunu belirtin).")
+    for change in diff["measurement_changes"]:
+        if change["name"].casefold() in redefined:
+            warnings.append(f"'{change['name']}' ölçümünün tanımı iki devrede farklı; iki değer aynı şeyi ölçmüyor.")
+    for label in ("a", "b"):
+        if logs[label].errors:
+            warnings.append(f"'{names[label]}' simülasyonu hata verdi: {logs[label].errors[0]}")
+        if logs[label].failed_measurements:
+            warnings.append(f"'{names[label]}' devresinde başarısız ölçüm: {logs[label].failed_measurements}")
+    if table["not_found"]:
+        warnings.append(f"İstenen ölçüm iki devrede ortak değil: {table['not_found']}")
+    if not table["measurements"]:
+        warnings.append("Karşılaştırılacak ortak .meas ölçümü yok; iki devreye aynı adla .meas ekleyin.")
+
+    return {
+        "status": "SUCCESS",
+        "circuit_a": names["a"],
+        "circuit_b": names["b"],
+        **diff,
+        "measurements": table["measurements"],
+        "only_in_a": table["only_in_a"],
+        "only_in_b": table["only_in_b"],
+        "warnings": warnings,
+    }
+
+
+def _tool_export_csv(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
+    raw_file = adapter.workspace_dir / f"{name}.raw"
+    if not raw_file.exists():
+        return {"status": "ERROR", "message": f".raw dosyası bulunamadı: {raw_file}. Önce devreyi simüle edin."}
+    delimiter = str(args.get("delimiter") or ",")
+    csv_file = adapter.workspace_dir / f"{name}.csv"
+    try:
+        info = export_waveforms_csv(
+            raw_file,
+            csv_file,
+            _signal_list(args.get("signals")),
+            delimiter="\t" if delimiter.lower() == "tab" else delimiter,
+            decimal=str(args.get("decimal") or "."),
+        )
+    except ValueError as ex:
+        return {"status": "ERROR", "message": str(ex)}
+    return {
+        "status": "SUCCESS",
+        "csv_saved_at": info["csv_path"],
+        "rows": info["rows"],
+        "columns": info["columns"],
+        "steps": info["steps"],
+        "analysis": info["analysis"],
+        "message": f"{info['rows']} satır yazıldı: {csv_file.name}",
+    }
+
+
 # --------------------------------------------------------------------------- dağıtım
 #: Saf hesap ve belge araçları: LTspice kurulu olmasa da çalışır, adaptör oluşturulmaz.
 _PURE_TOOLS: Dict[str, Callable[[Dict[str, Any], str], Dict[str, Any]]] = {
@@ -1374,6 +1551,8 @@ _CIRCUIT_TOOLS: Dict[str, Callable[[Dict[str, Any], str, LTSpiceAdapter], Dict[s
     "create_schematic": _tool_schematic,
     "check_design_safety": _tool_design_safety,
     "simulate_monte_carlo": _tool_monte_carlo,
+    "compare_circuits": _tool_compare_circuits,
+    "export_waveforms_csv": _tool_export_csv,
 }
 
 

@@ -66,7 +66,7 @@ _PARAM_NAME_RE = re.compile(r"^[A-Za-z_]\w*$")
 _NUMERIC_VALUE_RE = re.compile(r"^(?:\{[^}]*\}|[+-]?\.?\d)")
 
 # LTspice'ın çalışma alanına bıraktığı çıktı dosyası uzantıları (.db: LTspice 26'nın devre başına yazdığı önbellek)
-_ARTIFACT_SUFFIXES = (".net", ".asc", ".log", ".raw", ".db", ".png")
+_ARTIFACT_SUFFIXES = (".net", ".asc", ".log", ".raw", ".db", ".png", ".csv")
 # run_batch'in her işe açtığı alt dizinler (_batch_<ad>_<sıra>); temizlik ve kota bunlara da bakar
 _BATCH_DIR_PREFIX = "_batch_"
 
@@ -1797,7 +1797,7 @@ class LTSpiceAdapter:
 
     def remove_circuit(self, circuit_name: str) -> List[str]:
         """
-        Bir devrenin çalışma alanındaki dosyalarını (.net/.log/.raw/.db/.png, .op.raw ve _bode.png) siler.
+        Bir devrenin çalışma alanındaki dosyalarını (.net/.log/.raw/.db/.png/.csv, .op.raw ve _bode.png) siler.
         Silinen dosya adlarını döner; yalnızca bu adaptörün ``workspace_dir`` dizinine dokunur.
         """
         stem = sanitize_circuit_name(circuit_name)

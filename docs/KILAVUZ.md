@@ -1,5 +1,7 @@
 # Kullanım Kılavuzu
 
+İngilizce çevirisi: [GUIDE.md](GUIDE.md).
+
 ltspice-llm'in ayrıntılı başvuru belgesi: özellikler, API örnekleri, performans ölçümleri, kilitlenme koruması, testler ve bilinen sınırlamalar. Kısa tanıtım için [README](../README.md).
 
 ---
@@ -24,6 +26,7 @@ ltspice-llm'in ayrıntılı başvuru belgesi: özellikler, API örnekleri, perfo
    - `create_or_replace_circuit`, `modify_parameters`, `plot_transient_waveforms`, `plot_bode_diagram`, `get_circuit_netlist`, `list_circuits`, `quantize_parameters`, `diagnose_circuit_issue`, `optimize_parameter`, `search_ltspice_reference`.
    - Şemalar `get_ltspice_tool_schemas(format=...)` ile `generic`, `openai`, `anthropic` ve `gemini` biçimlerinde alınır. Biçimler sağlayıcı dokümantasyonuna göre üretilir, canlı API üzerinde otomatik test edilmez.
    - Araç argümanları sözlük veya JSON metni olabilir (OpenAI argümanları metin olarak gönderir).
+   - Genişletilmiş küme (`include_extended=True`) tasarım araçlarına ek olarak `compare_circuits` (iki devrenin netlist ve `.meas` farkı) ve `export_waveforms_csv` (dalga formlarını CSV'ye yazar) araçlarını içerir; ayrıntı aşağıda "LLM Ajanı Entegrasyonu" bölümünde.
 
 5. **Standart Komponent Kuantalama (E-Series Snapping):**
    - Teorik değerleri (örn: $15.915\text{ k}\Omega, 1.414\text{ nF}$) **E6, E12, E24, E96** serilerine yuvarlar (nearest, floor, ceil) ve sapma analizini sunar.
@@ -77,9 +80,12 @@ ltspice-llm/
 │   ├── reference.py              # ADI LTspice AI Reference araması ve model kütüphanesi indeksi
 │   ├── report.py                 # Simülasyon raporu (HTML): sorular, dalga formları, bileşen etkileri, güvenilirlik
 │   ├── agent.py                  # Kapalı devre optimizasyon (CircuitOptimizer)
+│   ├── compare.py                # İki devrenin netlist ve .meas farkı (tek değişken denetimi)
+│   ├── export.py                 # .raw dalga formlarını CSV'ye yazar
+│   ├── providers.py              # Anthropic / OpenAI / Gemini mesaj biçimi dönüştürücüleri
 │   ├── circuit_agent.py          # LLM araç döngüsü, konuşma geçmişi ve araç günlüğü
 │   └── system_prompts.py         # AI Donanım Mühendisi sistem promptu
-├── examples/                     # Örnek Senaryolar (01-18)
+├── examples/                     # Örnek Senaryolar (01-19)
 │   ├── 01_basic_simulation.py             # temel simülasyon ve .meas ölçümleri
 │   ├── 02_waveform_plotting.py            # dalga formu grafiği (PNG / multimodal LLM görseli)
 │   ├── 03_llm_function_calling_demo.py    # LLM araç çağrısı (tool / function calling)
@@ -208,7 +214,44 @@ Claude ile eksiksiz döngü (model kimliği, `effort`, reddedilen istek için `f
 - Ajanın varsayılan sistem istemi Türkçedir; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` İngilizce çevirisini verir. Araç açıklamaları ve araç sonuçlarındaki mesajlar istemden bağımsız olarak Türkçedir.
 - Genişletilmiş araçlar için ajanı `include_extended=True` ile kurun ve API'ye `get_ltspice_tool_schemas("anthropic", include_extended=True)` verin.
 
-Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo ve birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`.
+Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo, birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`, iki devreyi karşılaştıran `compare_circuits` ve dalga formlarını dosyaya yazan `export_waveforms_csv`.
+
+### İki devreyi karşılaştırma
+
+Bir ölçüm farkı ancak iki devre arasında tek değişken değiştiyse o değişkene atfedilebilir. `compare_circuits` aracı çalışma alanındaki simüle edilmiş iki devrenin netlist farkını ve ortak `.meas` sonuçlarının farkını verir. Aynı işi Python'dan `compare_netlists` ve `compare_measurements` yapar.
+
+```python
+from ltspice_llm import handle_tool_call
+
+handle_tool_call("create_or_replace_circuit", {"circuit_name": "before", "netlist_code": netlist})
+handle_tool_call("create_or_replace_circuit",
+                 {"circuit_name": "after", "netlist_code": netlist.replace("R1 in out 1k", "R1 in out 2k")})
+result = handle_tool_call("compare_circuits", {"circuit_a": "before", "circuit_b": "after"})
+# result["changes"]: [{"kind": "element", "name": "R1", "a": "R1 in out 1k", "b": "R1 in out 2k"}]
+# result["single_variable"]: True
+# result["measurements"]: her ortak ölçüm için a, b, delta, relative_change_percent, same_definition
+```
+
+- `changes`: değişen değişkenler (`element`, `param`, `option`, `analysis`, `model`, `directive`). Başlık, yorum, boşluk, satır sırası, büyük/küçük harf, `.end` sonrası, `.save` ve adaptörün eklediği `.options threads` satırı fark sayılmaz. R, C ve L değerleri ile `.param` ve `.options` değerleri sayı olarak karşılaştırılır (`1k` = `1000`; `1M` mili, `1Meg` megadır); öbür alanlar metin olarak karşılaştırılır.
+- `single_variable`: tam olarak bir değişken değiştiyse `true`. Birden çok değişken değiştiyse ya da netlistler aynıysa `warnings` bunu söyler.
+- `measurements`: ortak ölçümler. `delta = b - a`, `relative_change_percent = (b - a) / |a| * 100`; `a` sıfırsa yüzde `null`'dur. Değerler yuvarlanmaz. `same_definition` `false` ise ölçümün `.meas` tanımı iki devrede farklıdır ve iki değer aynı şeyi ölçmez.
+- Steplenmiş (`.step`) koşum karşılaştırılmaz: ölçümleri adımların ortalamasıdır. Karşılaştırılacak her durumu ayrı `circuit_name` ile koşun.
+
+### Dalga formlarını CSV'ye aktarma
+
+```python
+from ltspice_llm import LTSpiceAdapter, export_waveforms_csv
+
+run = LTSpiceAdapter().run_netlist(netlist, circuit_name="rc", treat_as_text=True)
+info = export_waveforms_csv(run.raw_path, "rc.csv", ["V(out)"])
+# info: {"csv_path": "rc.csv", "rows": ..., "columns": ["time", "V(out)"], "steps": 1, "analysis": "tran"}
+export_waveforms_csv(run.raw_path, "rc_comma.csv", delimiter=";", decimal=",")  # ondalık virgül kullanan bölge ayarı
+```
+
+- İlk sütun X eksenidir (`time`, `frequency` ya da `.dc` kaynağının adı); `.op` sonucunda eksen sütunu yoktur. Tstart'ı sıfırdan büyük `.tran`'da zaman mutlaktır.
+- Değerler yuvarlanmaz: her hücre, sayının kaydedildiği türde geri okunan en kısa yazımıdır (LTspice'ın varsayılan `.raw`'ında izler float32, zaman float64).
+- `.ac` izleri `re(V(out))` ve `im(V(out))` sütunlarına yazılır. Steplenmiş koşumda ilk sütun `step`'tir (LTspice logundaki gibi 1'den başlar).
+- `export_waveforms_csv` aracı dosyayı çalışma alanına `<circuit_name>.csv` olarak yazar ve yalnız dosya yolunu, satır sayısını ve sütun adlarını döndürür (veri modele gitmez); `delimiter` için `"tab"` da kabul eder. `remove_circuit` ve `cleanup_workspace` bu dosyayı da siler.
 
 ---
 

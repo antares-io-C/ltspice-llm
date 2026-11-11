@@ -81,6 +81,14 @@ def manifest_weakening(before, after):
 
 
 def proposed_content(event, current):
+    if "toolCall" in event:
+        call = event.get("toolCall") or {}
+        args = call.get("args") or {}
+        if call.get("name") == "write_file":
+            content = args.get("Content", "")
+            return current + content if args.get("Append") else content
+        old, new = args.get("Target", ""), args.get("Replacement", "")
+        return current.replace(old, new) if old else current
     tool_input = event.get("tool_input") or {}
     if event.get("tool_name") == "Write":
         return tool_input.get("content", "")
@@ -103,39 +111,64 @@ def weakening(before, after):
     return findings
 
 
+def _allow(agy=False):
+    """Sorun yok: hiçbir şey basma. ``"decision": "allow"`` Antigravity'de düzenlemeyi kullanıcı onayı olmadan
+    otomatik çalıştırırdı (Antigravity hooks belgesi)."""
+    return 0
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
     try:
         event = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     except ValueError:
         return 0
-    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or event.get("cwd") or ".").resolve()
-    path = Path((event.get("tool_input") or {}).get("file_path", "")).resolve()
-    if not path.is_file():
+    agy = isinstance(event, dict) and any(k in event for k in ("toolCall", "workspacePaths", "conversationId"))
+    workspaces = event.get("workspacePaths") or []
+    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or event.get("cwd")
+                   or (workspaces[0] if workspaces else Path(__file__).resolve().parents[2])).resolve()
+    raw_path = (((event.get("toolCall") or {}).get("args") or {}).get("Path", "") if agy
+                else (event.get("tool_input") or {}).get("file_path", ""))
+    if not raw_path:
+        return _allow(agy)
+    path = Path(raw_path).resolve()
+    if path.suffix.lower() == ".asc":
+        reason = (f".asc dosyalarını Edit/Write ile değiştirme ({path.name}): cp1252/UTF-16LE kodlaması bozulur ve "
+                  "µ -> U+FFFD/Âµ (1 F) olur. AscSchematic / write_asc_file kullan.")
+        out = {"decision": "deny", "reason": reason} if agy else {"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
+        json.dump(out, sys.stdout, ensure_ascii=False)
         return 0
+    if not path.is_file():
+        return _allow(agy)
     if is_manifest(path, project):
         check = manifest_weakening
     elif is_test_file(path, project):
         check = weakening
     else:
-        return 0
+        return _allow(agy)
 
     before = path.read_text(encoding="utf-8", errors="replace")
     findings = check(before, proposed_content(event, before))
     if not findings:
-        return 0
+        return _allow(agy)
 
     summary = "; ".join(findings)
-    json.dump({"hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "ask",
-        "permissionDecisionReason": f"Test koruması: {path.name} düzenlemesi {summary}. Yalnızca bilerek yapıldıysa onayla.",
-        "additionalContext": (
-            f"Test koruması bu düzenlemeyi ({summary}) kullanıcı onayına sundu. Kırık bir testi geçirmeye "
-            "çalışıyorsan testi değil kodu düzelt; test yanlışsa nedenini kaynağıyla (datasheet, ADI referansı, "
-            "LTspice ölçümü) kullanıcıya açıkla ve dur."
-        ),
-    }}, sys.stdout, ensure_ascii=False)
+    reason = f"Test koruması: {path.name} düzenlemesi {summary}. Yalnızca bilerek yapıldıysa onayla."
+    context = (
+        f"Test koruması bu düzenlemeyi ({summary}) kullanıcı onayına sundu. Kırık bir testi geçirmeye "
+        "çalışıyorsan testi değil kodu düzelt; test yanlışsa nedenini kaynağıyla (datasheet, ADI referansı, "
+        "LTspice ölçümü) kullanıcıya açıkla ve dur."
+    )
+    if agy:
+        json.dump({"decision": "ask", "reason": f"{reason} {context}"}, sys.stdout, ensure_ascii=False)
+    else:
+        json.dump({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": reason,
+            "additionalContext": context,
+        }}, sys.stdout, ensure_ascii=False)
     return 0
 
 

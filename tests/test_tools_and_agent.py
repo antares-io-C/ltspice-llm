@@ -516,7 +516,7 @@ def test_agent_can_offer_the_extended_tools_to_the_model(adapter):
     agent = AutonomousCircuitAgent(adapter=adapter, include_extended=True)
     seen = []
     out = agent.run("x", lambda m, tools: seen.append({t["name"] for t in tools}) or {"content": "ok", "tool_calls": []})
-    assert out["finished"] is True and len(seen[0]) == 16
+    assert out["finished"] is True and len(seen[0]) == 18  # 10 temel + 8 genişletilmiş (docs/KILAVUZ.md)
     assert {"simulate_monte_carlo", "check_design_safety", "calculate_trace_parasitics", "analyze_hotplug_transient",
             "create_or_replace_schematic", "optimize_parameters", "list_circuits"} <= seen[0]
 
@@ -743,8 +743,10 @@ def test_optimize_multi_parameters_finds_a_microsecond_target():
 # ------------------------------------------------------------------ genişletilmiş araçlar
 def test_extended_tool_schemas():
     tools = get_ltspice_tool_schemas(include_extended=True)
-    assert len(tools) == 16
+    assert len(tools) == 18  # 2026-11-11: compare_circuits ve export_waveforms_csv eklendi (docs/KILAVUZ.md)
     extended_names = {
+        "compare_circuits",
+        "export_waveforms_csv",
         "create_or_replace_schematic",
         "calculate_trace_parasitics",
         "analyze_hotplug_transient",
@@ -757,11 +759,11 @@ def test_extended_tool_schemas():
 
     # Sağlayıcı dönüşümleri genişletilmiş araçlarda da çalışmalı
     openai_tools = get_ltspice_tool_schemas("openai", include_extended=True)
-    assert len(openai_tools) == 16
+    assert len(openai_tools) == 18
     anthropic_tools = get_ltspice_tool_schemas("anthropic", include_extended=True)
-    assert len(anthropic_tools) == 16
+    assert len(anthropic_tools) == 18
     gemini_tools = get_ltspice_tool_schemas("gemini", include_extended=True)
-    assert len(gemini_tools[0]["function_declarations"]) == 16
+    assert len(gemini_tools[0]["function_declarations"]) == 18
 
 
 def test_tool_calculate_trace_parasitics():

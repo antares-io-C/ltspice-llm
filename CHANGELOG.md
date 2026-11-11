@@ -2,6 +2,39 @@
 
 ## Yayımlanmadı
 
+Yeni (2026-11-11):
+
+- `compare_circuits` aracı ve `compare_netlists` / `compare_measurements`: simüle edilmiş iki devrenin netlist farkı
+  (değişen eleman, `.param`, `.options` seçeneği, analiz komutu) ve ortak `.meas` sonuçlarının farkı. Tam olarak bir
+  değişken değiştiyse `single_variable` doğrudur; `.meas` tanımı iki devrede farklı olan ölçüm `same_definition: false`
+  ile işaretlenir. Steplenmiş koşum karşılaştırılmaz.
+- `export_waveforms_csv` aracı ve fonksiyonu: `.raw` izlerini CSV'ye yazar. Değerler yuvarlanmaz, Tstart kayması zamana
+  eklenir, `.ac` izleri `re(...)` / `im(...)` sütunlarına, steplenmiş koşum `step` sütunuyla yazılır; sütun ve ondalık
+  ayırıcı seçilebilir. `remove_circuit` ve `cleanup_workspace` çalışma alanındaki `.csv` dosyasını da siler.
+- İki araç da genişletilmiş kümededir (`include_extended=True`); varsayılan 10 araç değişmedi.
+- `docs/GUIDE.md`: `docs/KILAVUZ.md`'nin İngilizce çevirisi; README artık onu gösterir. `tests/test_docs.py` iki
+  belgenin başlık, tablo ve kod bloğu yapısının aynı kaldığını denetler. Kılavuzun proje ağacına `providers.py` eklendi.
+- Antigravity hook'ları (`.agents/hooks.json`): `.claude/hooks/` altındaki dört hook (oturum başı, komut ve düzenleme
+  öncesi, tur sonu) Antigravity'de de çalışır. Betikler girdinin hangi ajandan geldiğini tanır ve o ajanın çıktı
+  biçimini yazar; sorun yoksa hiçbir şey basmaz, çünkü Antigravity'de `"allow"` kullanıcının onay adımını atlar.
+  İki ajanda da `guard_tests.py` `.asc` dosyasına Edit/Write'ı, `pre_ltspice_guard.py` `git clean` ve
+  `git reset --hard`'ı (`git -C` ve `cmd /c` içinde de) reddeder. Tur sonu kapısı Antigravity'de yalnız tur
+  kendiliğinden bitince koşar; arka plan görevi sürerken ya da tur başka nedenle (ör. kullanıcı iptali) bitince
+  koşmaz. `test-reviewer` alt ajanının Antigravity kopyası
+  `.agents/agents/test-reviewer.md`; `tests/test_harness.py` iki kopyanın gövdesinin aynı kaldığını denetler.
+- Testler: bağımsız inceleme bu maddelerin testlerinde, bugünkü kodun doğru davrandığı girdilerle öldürülebilen 30 sağ
+  kalan mutant buldu (kod hatası değil, test boşluğu). Eklenen testler:
+  - Hook'larda Claude Code çıktıları (PreToolUse reddi, Stop'ta `block` ve `stop_hook_active`, SessionStart), iki
+    ajanın olay-betik eşlemesi, var olan `.asc`'nin reddi ve komutun platformun kabuğuyla okunması.
+  - `compare_circuits` uyarıları ve ölçüm satırının tanımına bağlanması; `.model`, alt devre kapsamı, `.options`
+    değerinin sayı olarak karşılaştırılması, `.option`, `.backanno`.
+  - Adım başına zaman ekseni ve iki kılavuzdaki sayıların aynılığı.
+  - ADI çarpan tablosundan kurulan bağımsız oracle'lı bir Hypothesis testi.
+
+  Yeni gerçek kayıtlar `ref26_cmp_meas_fail`, `ref26_cmp_step_c` (`examples/14` `compare`); kataloğa 28 mutant
+  ("inceleme 11-11"). Açık kalan biri: `.raw`'da yalnız harf büyüklüğüyle ayrışan iki iz. LTspice'ta adlar büyük/küçük
+  harfe duyarsız olduğundan (ADI "Node Naming") böyle bir kayıt beklenmiyor.
+
 Bağımsız inceleme (2026-11-08) düzeltmeleri:
 
 - Güvenlik, `simulate_monte_carlo`: toleranslı `.param` değeri `re.sub`'ın yerine koyma şablonuna gömülüyordu. Şablon

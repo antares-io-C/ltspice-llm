@@ -35,17 +35,19 @@ yazılır; bu dosyada yalnızca Claude Code'a özgü olanlar durur.
   olmayan bir dosyayı göstermeli (`LTSPICE_EXE=C:/yok/x.exe`, `export` ya da `$env:`). Tam paket LTspice ile, örnekler
   dahil ~8 dk (i7-7500U; örnekler ~6 dk, `-m "not examples"` atlar);
   LTspice'sız alt küme `LTSPICE_EXE=C:/yok/x.exe python -m pytest tests -q` ~10 sn (LTspice testleri atlanır).
-- Hook'lar `.claude/hooks/`'ta. Stop hook'u her tur sonunda `.asc` bütünlüğünü (U+FFFD, UTF-8 `µ`, BOM) denetler,
+- Hook'lar `.claude/hooks/`'ta (Claude Code için `.claude/settings.json`, Antigravity için `.agents/hooks.json`
+  üzerinden bağlanır). Stop hook'u her tur sonunda `.asc` bütünlüğünü (U+FFFD, UTF-8 `µ`, BOM) denetler,
   Python dosyaları değiştiyse `python scripts/check.py --steps lint,tests` koşar ve kırıksa turu bir kez geri
-  çevirir. `guard_tests.py` (PreToolUse, Edit/Write) test silen, skip/xfail ekleyen ya da assert azaltan
-  düzenlemede, `tests/usecases/*.json`'da da senaryo/eylem silen ya da denetimi gevşeten düzenlemede
-  kullanıcıya sorar. SessionStart hook'u LTspice.exe değişince ve oturum başında kalmış batch LTspice
+  çevirir. `guard_tests.py` (PreToolUse, Edit/Write) `.asc` yazımını engeller ve test silen, skip/xfail ekleyen
+  ya da assert azaltan düzenlemede, `tests/usecases/*.json`'da da senaryo/eylem silen ya da denetimi gevşeten
+  düzenlemede kullanıcıya sorar. SessionStart hook'u LTspice.exe değişince ve oturum başında kalmış batch LTspice
   varsa uyarır. Kişisel olarak kapatmak için `.claude/settings.local.json`'a `"disableAllHooks": true`.
 - Claude Code skill'leri yalnızca `.claude/skills/`'ten okur. `.agents/skills/<ad>/` (GEMINI.md "Proje") için
   `.claude/skills/<ad>/SKILL.md` yalnızca yönlendirmedir: önbilgisi kanonik dosyanınkiyle birebir aynı, gövdesi
   kanonik dosyayı gösterir. Yönerge kanonik dosyaya yazılır; `tests/test_skills.py` eşleşmeyi denetler.
 - Test ekledikten ya da değiştirdikten sonra `test-reviewer` subagent'ıyla bağımsız inceleme yap
-  (`.claude/agents/test-reviewer.md`); bulguları doğrulamadan uygulama.
+  (`.claude/agents/test-reviewer.md` ve `.agents/agents/test-reviewer.md`; `tests/test_harness.py` eşleşmeyi denetler);
+  bulguları doğrulamadan uygulama.
 - `git clean` ve `git reset --hard` izin kurallarıyla engellidir: geri alınamazlar.
 - Bir yapay zekâ incelemesini ölçerek doğrulama ve dersleri kaydetme akışı: `/verify-review`.
 - Simülasyon raporunu (GEMINI.md "Simülasyon raporu") yerel yolun yanında Artifact olarak da yayımla.

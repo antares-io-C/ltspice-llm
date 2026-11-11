@@ -302,3 +302,370 @@ def test_guard_hook_asks_before_a_manifest_scenario_is_dropped(tmp_path):
                                                   "content": json.dumps({**MANIFEST, "scenarios": []})}}
     out = _run_guard(event, tmp_path)["hookSpecificOutput"]
     assert out["permissionDecision"] == "ask" and "senaryo" in out["permissionDecisionReason"]
+
+
+# ------------------------------------------- Antigravity (.agents/hooks.json, .agents/agents/) ve ortak korumalar
+# Antigravity girdi ve çıktıları Antigravity'nin hooks belgesinden yazıldı, gerçek bir Antigravity oturumundan kaydedilmedi;
+# belgenin yerel kopyası depoda yok (2026-11-11). Gerçek yükler kaydedilince tests/data'ya konmalı (ref26_* kayıtları gibi).
+session_start = _load("session_start", ROOT / ".claude" / "hooks" / "session_start.py")
+stop_gate = _load("stop_gate", ROOT / ".claude" / "hooks" / "stop_gate.py")
+
+
+def test_antigravity_hooks_json_wires_all_four_hooks_from_agents_working_dir():
+    """Kaynak: Antigravity hooks belgesi ('The working directory is set to the directory containing hooks.json').
+    .agents/hooks.json içindeki her komut .agents/ klasöründen bakıldığında var olan .claude/hooks/<betik>.py'yi göstermeli."""
+    hooks_json = ROOT / ".agents" / "hooks.json"
+    assert hooks_json.is_file()
+    data = json.loads(hooks_json.read_text(encoding="utf-8"))
+    spec = data["ltspice-harness"]
+    commands = [h["command"] for h in spec["SessionStart"] + spec["Stop"]]
+    commands += [h["command"] for group in spec["PreToolUse"] for h in group["hooks"]]
+    scripts = set()
+    for cmd in commands:
+        assert cmd.startswith("python ")
+        rel = cmd.split(" ", 1)[1].strip('"')
+        target = (hooks_json.parent / rel).resolve()
+        assert target.is_file(), (cmd, target)
+        scripts.add(target.name)
+    assert scripts == {"session_start.py", "pre_ltspice_guard.py", "guard_tests.py", "stop_gate.py"}
+    matchers = {g["matcher"] for g in spec["PreToolUse"]}
+    assert matchers == {"run_command", "edit_file|write_file"}
+
+
+@pytest.mark.parametrize("command,batch,expected", [
+    ("python -m pytest tests -q", "", None),
+    ("python -m pytest tests -q", "other", "deny"),
+    ("$env:LTSPICE_EXE='C:\\yok\\x.exe'; python -m pytest tests -q", "other", None),
+    ("export LTSPICE_EXE=/yok/x.exe; python -m pytest tests -q", "other", "deny"),  # Windows PowerShell'de export yok
+    ("python examples/12_ltspice_reference_checks.py", "pytest", "deny"),
+    ("git clean -fd", "", "deny"),
+    ("git -C sub clean -fdx", "", "deny"),
+    ("git reset --hard HEAD~1", "", "deny"),
+    ("cmd /c \"git reset --hard\"", "", "deny"),
+    ("git reset HEAD a.py", "", None),
+    ("git commit -m \"git clean ve git reset --hard engellendi\"", "", None),
+], ids=["bos", "pytest-deny", "powershell-ltspicesiz", "yanlis-kabuk-export", "ornek-pytest-varken",
+        "git-clean", "git-c-clean", "git-reset-hard", "cmd-c-reset-hard", "git-reset-soft", "commit-mesaji"])
+def test_antigravity_pre_ltspice_guard_and_git_deny(monkeypatch, capsys, command, batch, expected):
+    """Kaynak: Antigravity hooks belgesi PreToolUse sözleşmesi (toolCall.name='run_command', args.CommandLine;
+    çıktı: {'decision': 'deny', 'reason': ...}) ve .claude/settings.json permissions.deny (git clean, git reset --hard).
+    Sorun yoksa çıktı boştur: 'allow' aracı kullanıcı onayı olmadan otomatik çalıştırırdı (aynı belge)."""
+    procs = {"": [], "other": ["batch"], "pytest": ["pytest-batch"]}[batch]
+    monkeypatch.setattr(ltspice_guard, "batch_processes", lambda: procs)
+    monkeypatch.setattr(ltspice_guard, "owned_by_pytest", lambda p: p == "pytest-batch")
+    monkeypatch.setattr(ltspice_guard, "describe", lambda ps: ", ".join(ps))
+    monkeypatch.setattr(sys, "platform", "win32")
+    payload = {"conversationId": "c1", "workspacePaths": [str(ROOT)],
+               "toolCall": {"name": "run_command", "args": {"CommandLine": command}}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert ltspice_guard.main() == 0
+    raw = capsys.readouterr().out
+    if expected is None:
+        assert raw == ""
+        return
+    out = json.loads(raw)
+    assert out["decision"] == expected
+    assert out.get("reason")
+
+
+def test_guard_tests_handles_antigravity_edit_and_write_from_agents_cwd(tmp_path):
+    """Kaynak: Antigravity hooks belgesi PreToolUse sözleşmesi ve edit_file/write_file araç şeması.
+    hooks.json çalışma dizini .agents/ iken CLAUDE_PROJECT_DIR olmadan workspacePaths ile proje kökünü bulmalı."""
+    agents_dir = tmp_path / ".agents"
+    agents_dir.mkdir()
+    test_file = tmp_path / "tests" / "test_x.py"
+    test_file.parent.mkdir()
+    test_file.write_text(TESTS, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+
+    def run_agy(tool_name, **args):
+        event = {"conversationId": "c1", "workspacePaths": [str(tmp_path)],
+                 "toolCall": {"name": tool_name, "args": args}}
+        proc = subprocess.run([sys.executable, str(ROOT / ".claude" / "hooks" / "guard_tests.py")],
+                              input=json.dumps(event).encode("utf-8"), capture_output=True,
+                              cwd=agents_dir, env=env, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout) if proc.stdout.strip() else None
+
+    # edit_file ile assert silme -> ask
+    res = run_agy("edit_file", Path=str(test_file), Target="    assert f(2) == 3\n", Replacement="")
+    assert res["decision"] == "ask" and "test_x.py" in res["reason"] and "kodu düzelt" in res["reason"]
+
+    # edit_file tüm eşleşmeleri değiştirir (araç kuralı #3): iki assert tek Target ile silinirse 3 -> 1 düşüş yakalanır
+    dup_file = tmp_path / "tests" / "test_dup.py"
+    dup_file.write_text("def test_a():\n    assert f(1) == 2\n    assert f(1) == 2\n    assert f(2) == 3\n", encoding="utf-8")
+    res_dup = run_agy("edit_file", Path=str(dup_file), Target="    assert f(1) == 2\n", Replacement="")
+    assert res_dup["decision"] == "ask" and "3'dan 1'a" in res_dup["reason"]
+
+    # write_file Append=True ile yeni test ekleme -> çıktı yok (karar kullanıcının izin akışına kalır)
+    res_append = run_agy("write_file", Path=str(test_file), Content="\ndef test_c():\n    assert f(3) == 4\n", Append=True)
+    assert res_append is None
+
+    # write_file Append=False ile mevcut testi ezme -> ask
+    res_overwrite = run_agy("write_file", Path=str(test_file), Content="\ndef test_c():\n    assert f(3) == 4\n", Overwrite=True)
+    assert res_overwrite["decision"] == "ask" and "test_a" in res_overwrite["reason"]
+
+
+def test_guard_tests_denies_asc_edit_and_write_in_both_agents(tmp_path):
+    """Kaynak: .claude/settings.json permissions.deny ('Edit(**/*.asc)', 'Write(**/*.asc)') ve GEMINI.md ('UTF-8 1µ -> 1 F').
+    Var olmayan yeni bir .asc dosyası oluşturulurken de, var olan düzenlenirken de reddedilmelidir."""
+    new_asc = tmp_path / "devre.asc"
+    claude_write = {"tool_name": "Write", "tool_input": {"file_path": str(new_asc), "content": "Version 4\n"}}
+    out_claude = _run_guard(claude_write, tmp_path)["hookSpecificOutput"]
+    assert out_claude["permissionDecision"] == "deny" and "AscSchematic" in out_claude["permissionDecisionReason"]
+
+    agy_edit = {"conversationId": "c1", "workspacePaths": [str(tmp_path)],
+                "toolCall": {"name": "edit_file", "args": {"Path": str(new_asc), "Target": "a", "Replacement": "b"}}}
+    out_agy = _run_guard(agy_edit, tmp_path)
+    assert out_agy["decision"] == "deny" and "AscSchematic" in out_agy["reason"]
+
+
+def test_session_start_supports_antigravity_and_claude_contracts(tmp_path, monkeypatch, capsys):
+    """Kaynak: Antigravity hooks belgesi SessionStart sözleşmesi (injectSteps -> systemMessage)."""
+    monkeypatch.setattr(session_start, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(session_start, "STATE", tmp_path / "ltspice.json")
+    fake_exe = tmp_path / "LTspice.exe"
+    fake_exe.write_bytes(b"exe")
+    monkeypatch.setattr(session_start, "find_ltspice_exe", lambda: fake_exe)
+    monkeypatch.setattr(session_start, "file_version", lambda p: "26.1.1")
+    monkeypatch.setattr(session_start, "batch_processes", lambda: [])
+
+    # İlk çalışmada sorun yok -> Antigravity'de {}, Claude'da boş çıktı
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"conversationId": "c1", "workspacePaths": [str(tmp_path)]})))
+    assert session_start.main() == 0
+    assert json.loads(capsys.readouterr().out) == {}
+
+    # Sürüm değiştiğinde ve batch LTspice varken -> Antigravity injectSteps döner
+    monkeypatch.setattr(session_start, "file_version", lambda p: "26.2.0")
+    monkeypatch.setattr(session_start, "batch_processes", lambda: ["p1"])
+    monkeypatch.setattr(session_start, "describe", lambda ps: "PID 42 (pytest)")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"conversationId": "c1", "workspacePaths": [str(tmp_path)]})))
+    assert session_start.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    msg = out["injectSteps"][0]["systemMessage"]
+    assert "26.1.1 -> 26.2.0" in msg["systemMessage"] and "PID 42" in msg["systemMessage"]
+    assert "26.1.1 -> 26.2.0" in msg["metadata"]["user_markdown"]
+    # sürüm metni iki iletide de var: kullanıcıya giden ileti kısa nottur, modelin talimatı (örnek 12'yi çalıştır) değil
+    assert msg["metadata"]["user_markdown"].count("yeniden çalıştırılması gerekiyor") == 1
+    assert msg["metadata"]["user_markdown"].count("12_ltspice_reference_checks.py") == 0
+
+
+def test_stop_gate_supports_antigravity_idle_and_continue_contract(tmp_path, monkeypatch, capsys):
+    """Kaynak: Antigravity hooks belgesi Stop sözleşmesi (fullyIdle, terminationReason, decision='continue'|'stop')."""
+    monkeypatch.setattr(stop_gate, "ROOT", tmp_path)
+    monkeypatch.setattr(stop_gate, "STATE_DIR", tmp_path / ".state")
+    monkeypatch.setattr(stop_gate, "STATE", tmp_path / ".state" / "stop_gate.json")
+    monkeypatch.setattr(stop_gate, "batch_processes", lambda: [])
+    gate_calls = []
+
+    def fake_gate():
+        gate_calls.append(1)
+        return subprocess.CompletedProcess(["check.py"], 1, stdout="[FAIL] tests\n1 failed\n", stderr="")
+
+    monkeypatch.setattr(stop_gate, "run_gate", fake_gate)
+    (tmp_path / "ltspice_llm").mkdir()
+    (tmp_path / "ltspice_llm" / "a.py").write_text("x = 1\n", encoding="utf-8")
+
+    # Arka plan görevi çalışırken (fullyIdle=False) kapı koşulmaz, durmaya izin verilir
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({
+        "conversationId": "c1", "terminationReason": "NO_TOOL_CALL", "fullyIdle": False})))
+    assert stop_gate.main() == 0
+    assert json.loads(capsys.readouterr().out)["decision"] == "stop"
+    assert gate_calls == []
+
+    # Kullanıcı iptalinde (USER_CANCELED) kapı koşulmaz
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({
+        "conversationId": "c1", "terminationReason": "USER_CANCELED", "fullyIdle": True})))
+    assert stop_gate.main() == 0
+    assert json.loads(capsys.readouterr().out)["decision"] == "stop"
+    assert gate_calls == []
+
+    # Normal tur bitişinde (fullyIdle=True, NO_TOOL_CALL) kırık kapı bir kez 'continue' döner, aynı parmak izinde ikinci kez engellemez
+    payload = json.dumps({"conversationId": "c1", "terminationReason": "NO_TOOL_CALL", "fullyIdle": True})
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    assert stop_gate.main() == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["decision"] == "continue" and "Kalite kapısı kırık" in first["reason"]
+    assert len(gate_calls) == 1
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    assert stop_gate.main() == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["decision"] == "stop"
+
+
+def test_test_reviewer_agent_is_synced_between_agents_and_claude():
+    """Kaynak: Antigravity alt ajan ayarları belgesi ('agents/<name>.md': name, description, subagent: true, mainAgent: false,
+    tools: [read_file, run_command, manage_task]; gövde Claude Code alt ajanıyla birebir aynı)."""
+    import yaml
+
+    claude_path = ROOT / ".claude" / "agents" / "test-reviewer.md"
+    agents_path = ROOT / ".agents" / "agents" / "test-reviewer.md"
+    assert claude_path.is_file() and agents_path.is_file()
+
+    def split_md(p):
+        text = p.read_text(encoding="utf-8")
+        assert text.startswith("---\n")
+        end = text.index("\n---\n", 4)
+        return yaml.safe_load(text[4:end]), text[end + 5:]
+
+    c_meta, c_body = split_md(claude_path)
+    a_meta, a_body = split_md(agents_path)
+    assert a_meta["name"] == c_meta["name"] == "test-reviewer"
+    assert a_meta["description"] == c_meta["description"]
+    assert a_meta["subagent"] is True and a_meta["mainAgent"] is False
+    assert a_meta["tools"] == ["read_file", "run_command", "manage_task"]
+    assert a_body == c_body
+
+
+def test_both_agents_wire_each_event_to_the_same_hook_script():
+    """.agents/hooks.json ile .claude/settings.json aynı olaya aynı betiği bağlar: oturum başı session_start, komut öncesi
+    pre_ltspice_guard, dosya düzenlemesi öncesi guard_tests, tur sonu stop_gate. Betik adlarının kümesi (yukarıdaki test)
+    yer değiştirmiş iki betiği görmez."""
+    agy = json.loads((ROOT / ".agents" / "hooks.json").read_text(encoding="utf-8"))["ltspice-harness"]
+    claude = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]
+
+    def scripts(hooks):
+        return {Path(hook["command"].split()[-1].strip('"')).name for hook in hooks}
+
+    agy_map = {"SessionStart": scripts(agy["SessionStart"]), "Stop": scripts(agy["Stop"])}
+    agy_map.update({group["matcher"]: scripts(group["hooks"]) for group in agy["PreToolUse"]})
+    claude_map = {event: scripts(hook for group in claude[event] for hook in group["hooks"])
+                  for event in ("SessionStart", "Stop")}
+    claude_map.update({group["matcher"]: scripts(group["hooks"]) for group in claude["PreToolUse"]})
+    events = {"SessionStart": {"session_start.py"}, "Stop": {"stop_gate.py"}}
+    assert agy_map == {**events, "run_command": {"pre_ltspice_guard.py"}, "edit_file|write_file": {"guard_tests.py"}}
+    assert claude_map == {**events, "Bash|PowerShell": {"pre_ltspice_guard.py"}, "Edit|Write": {"guard_tests.py"}}
+
+
+@pytest.mark.parametrize("platform, command, expected", [
+    ("win32", "$env:LTSPICE_EXE='C:\\yok\\x.exe'; python -m pytest tests -q", None),
+    ("win32", "export LTSPICE_EXE=/yok/x.exe; python -m pytest tests -q", "deny"),
+    ("linux", "export LTSPICE_EXE=/yok/x.exe; python -m pytest tests -q", None),
+    ("linux", "$env:LTSPICE_EXE='C:\\yok\\x.exe'; python -m pytest tests -q", "deny"),
+], ids=["windows-powershell", "windows-export", "linux-export", "linux-powershell"])
+def test_antigravity_command_is_read_with_the_platform_shell(monkeypatch, capsys, platform, command, expected):
+    """Antigravity girdisinde komut yalnız metindir (toolCall.args.CommandLine); kod kabuğu platformdan çıkarır: Windows'ta
+    PowerShell, öbür platformlarda Bash (pre_ltspice_guard.main). Atama o kabuğun kuralıyla okunur
+    (test_ltspice_guard_reads_commands_like_the_shell_does)."""
+    monkeypatch.setattr(ltspice_guard, "batch_processes", lambda: ["batch"])
+    monkeypatch.setattr(ltspice_guard, "owned_by_pytest", lambda p: False)
+    monkeypatch.setattr(ltspice_guard, "describe", lambda ps: ", ".join(ps))
+    monkeypatch.setattr(sys, "platform", platform)
+    payload = {"conversationId": "c1", "toolCall": {"name": "run_command", "args": {"CommandLine": command}}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert ltspice_guard.main() == 0
+    raw = capsys.readouterr().out
+    assert (json.loads(raw)["decision"] if raw else None) == expected
+
+
+def test_guard_tests_denies_editing_an_existing_asc_in_both_agents(tmp_path):
+    """Var olan bir şema (LTspice'ın cp1252 biçimi, µ'lü; GEMINI.md "LTspice referans kuralları"): Edit ve edit_file de
+    reddedilir, dosyaya dokunulmaz. Yukarıdaki test yalnız henüz olmayan bir .asc'yi sınıyor."""
+    asc = tmp_path / "devre.asc"
+    data = "Version 4\r\nSYMATTR Value 1µ\r\n".encode("cp1252")
+    asc.write_bytes(data)
+    claude_edit = {"tool_name": "Edit", "tool_input": {"file_path": str(asc), "old_string": "1µ", "new_string": "2µ"}}
+    out = _run_guard(claude_edit, tmp_path)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny" and out["permissionDecisionReason"].count("AscSchematic") == 1
+    agy_edit = {"conversationId": "c1", "workspacePaths": [str(tmp_path)],
+                "toolCall": {"name": "edit_file", "args": {"Path": str(asc), "Target": "1µ", "Replacement": "2µ"}}}
+    out_agy = _run_guard(agy_edit, tmp_path)
+    assert out_agy["decision"] == "deny" and out_agy["reason"].count("AscSchematic") == 1
+    assert asc.read_bytes() == data
+
+
+# Claude Code hook girdileri (Claude Code hooks belgesi, "Hook Input"): her olayda session_id, transcript_path, cwd,
+# permission_mode ve hook_event_name; PreToolUse'ta tool_name ve tool_input, Stop'ta stop_hook_active, SessionStart'ta
+# source. Antigravity'nin alanları (conversationId, workspacePaths, toolCall, terminationReason) yok.
+CLAUDE_EVENT = {"session_id": "s1", "transcript_path": "C:/proje/s1.jsonl", "cwd": "C:/proje",
+                "permission_mode": "default"}
+
+
+@pytest.mark.parametrize("event, expected", [
+    ({**CLAUDE_EVENT, "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "python -V"}},
+     False),
+    ({**CLAUDE_EVENT, "hook_event_name": "Stop", "stop_hook_active": False}, False),
+    ({**CLAUDE_EVENT, "hook_event_name": "SessionStart", "source": "startup"}, False),
+    ({"conversationId": "c1", "toolCall": {"name": "run_command", "args": {"CommandLine": "python -V"}}}, True),
+    ({"conversationId": "c1", "terminationReason": "NO_TOOL_CALL", "fullyIdle": True}, True),
+    ({"conversationId": "c1", "workspacePaths": ["C:/proje"]}, True),
+], ids=["claude-pretooluse", "claude-stop", "claude-sessionstart", "agy-pretooluse", "agy-stop", "agy-sessionstart"])
+def test_hook_input_is_recognised_by_its_own_fields(event, expected):
+    """Claude Code olayı Antigravity sanılırsa pre_ltspice_guard boş CommandLine okur ve LTspice koruması sessizce kapanır."""
+    assert ltspice_guard.is_antigravity(event) is expected
+
+
+@pytest.mark.parametrize("command, batch", [
+    ("python -m pytest tests -q", ["batch"]),           # batch LTspice çalışırken LTspice'lı pytest
+    ("python scripts/x.py && git reset --hard", []),    # python ile başlayan komut hook'a gelir (settings.json "if")
+], ids=["pytest", "git-reset-hard"])
+def test_claude_pre_tool_use_gets_the_claude_deny_format(monkeypatch, capsys, command, batch):
+    """Claude Code hooks belgesi ("PreToolUse Decision Control"): karar hookSpecificOutput.permissionDecision'dadır;
+    Antigravity'nin üst düzey "decision" alanı Claude Code'da karar değildir."""
+    monkeypatch.setattr(ltspice_guard, "batch_processes", lambda: batch)
+    monkeypatch.setattr(ltspice_guard, "owned_by_pytest", lambda p: False)
+    monkeypatch.setattr(ltspice_guard, "describe", lambda ps: ", ".join(ps))
+    event = {**CLAUDE_EVENT, "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": command}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(event)))
+    assert ltspice_guard.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert list(out) == ["hookSpecificOutput"]
+    assert out["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_stop_gate_blocks_claude_once_and_never_while_the_stop_hook_is_active(tmp_path, monkeypatch, capsys):
+    """Claude Code hooks belgesi ("Stop Decision Control"): "decision": "block" ve reason Claude'u sürdürür.
+    stop_hook_active doğruysa Claude zaten bir Stop hook'u yüzünden sürüyordur; yeniden engellemek döngü olur, sorun
+    kullanıcıya systemMessage ile gösterilir."""
+    monkeypatch.setattr(stop_gate, "ROOT", tmp_path)
+    monkeypatch.setattr(stop_gate, "STATE_DIR", tmp_path / ".state")
+    monkeypatch.setattr(stop_gate, "STATE", tmp_path / ".state" / "stop_gate.json")
+    monkeypatch.setattr(stop_gate, "batch_processes", lambda: [])
+    monkeypatch.setattr(stop_gate, "run_gate", lambda: subprocess.CompletedProcess(
+        ["check.py"], 1, stdout="[FAIL] tests\n1 failed\n", stderr=""))
+    source = tmp_path / "ltspice_llm" / "a.py"
+    source.parent.mkdir()
+    source.write_text("x = 1\n", encoding="utf-8")
+
+    def stop(active):
+        event = {**CLAUDE_EVENT, "hook_event_name": "Stop", "stop_hook_active": active}
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(event)))
+        assert stop_gate.main() == 0
+        return json.loads(capsys.readouterr().out)
+
+    first = stop(False)
+    assert first["decision"] == "block" and first["reason"].count("Kalite kapısı kırık") == 1
+    source.write_text("x = 22\n", encoding="utf-8")  # yeni dosya durumu: kapı yeniden koşar, yine kırık
+    second = stop(True)
+    assert "decision" not in second and second["systemMessage"].count("Kalite kapısı kırık") == 1
+
+
+def test_session_start_tells_claude_and_the_user_different_things(tmp_path, monkeypatch, capsys):
+    """Claude Code hooks belgesi ("SessionStart"): hookSpecificOutput.additionalContext modelin bağlamına, üst düzey
+    systemMessage kullanıcıya gider. Kullanıcıya kısa not gider, modelin talimatı (örnek 12'yi çalıştır) yalnız bağlamda
+    durur (session_start belgesi: not hem Claude'a hem kullanıcıya bir kez gösterilir)."""
+    monkeypatch.setattr(session_start, "STATE_DIR", tmp_path)
+    monkeypatch.setattr(session_start, "STATE", tmp_path / "ltspice.json")
+    fake_exe = tmp_path / "LTspice.exe"
+    fake_exe.write_bytes(b"exe")
+    monkeypatch.setattr(session_start, "find_ltspice_exe", lambda: fake_exe)
+    monkeypatch.setattr(session_start, "batch_processes", lambda: [])
+    event = json.dumps({**CLAUDE_EVENT, "hook_event_name": "SessionStart", "source": "startup"})
+
+    monkeypatch.setattr(session_start, "file_version", lambda p: "26.1.1")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(event))
+    assert session_start.main() == 0
+    assert capsys.readouterr().out == ""  # söylenecek bir şey yoksa Claude Code'a hiçbir şey yazılmaz
+
+    monkeypatch.setattr(session_start, "file_version", lambda p: "26.2.0")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(event))
+    assert session_start.main() == 0
+    out = json.loads(capsys.readouterr().out)
+    assert set(out) == {"hookSpecificOutput", "systemMessage"}
+    assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+    context, user = out["hookSpecificOutput"]["additionalContext"], out["systemMessage"]
+    assert context.count("12_ltspice_reference_checks.py") == 1 and user.count("12_ltspice_reference_checks.py") == 0
+    assert user.count("26.1.1 -> 26.2.0") == 1 and user.count("yeniden çalıştırılması gerekiyor") == 1
+

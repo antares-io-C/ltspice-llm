@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ltspice_procs import batch_processes, describe, file_version, find_ltspice_exe  # noqa: E402
+from ltspice_procs import batch_processes, describe, file_version, find_ltspice_exe, is_antigravity  # noqa: E402
 
 ROOT = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path(__file__).resolve().parents[2])
 STATE_DIR = ROOT / ".claude" / "hooks" / ".state"
@@ -22,6 +22,11 @@ STATE = STATE_DIR / "ltspice.json"
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
+    try:
+        event = json.load(sys.stdin)
+    except ValueError:
+        event = {}
+    agy = is_antigravity(event)
     context, user = [], []
 
     exe = find_ltspice_exe()
@@ -54,6 +59,14 @@ def main():
         user.append(msg)
 
     if not context:
+        if agy:
+            json.dump({}, sys.stdout, ensure_ascii=False)
+        return 0
+    if agy:
+        step = {"systemMessage": "\n".join(context)}
+        if user:
+            step["metadata"] = {"user_markdown": "\n".join(user)}
+        json.dump({"injectSteps": [{"systemMessage": step}]}, sys.stdout, ensure_ascii=False)
         return 0
     out = {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "\n".join(context)}}
     if user:
