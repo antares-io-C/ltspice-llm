@@ -23,7 +23,7 @@
     {"id": "K6", "message": "Yalnız dökümle bağlı padler için uzunluk uydurulmaz, model kurulmaz", "proof": "boundary",
      "source": "board.py modül belgesi: bağlantı bakır dökümden geçiyorsa iz modeli uygulanmaz, uzunluk uydurulmaz"},
     {"id": "K7", "message": "Okunamayan dosyanın içeriği hata iletisine yansıtılmaz", "proof": "boundary",
-     "source": "tools._tool_board_trace: ayrıştırıcının iletisi dosyadan metin taşır, modele yansıtılmaz; CHANGELOG 'Yayımlanmadı'"}
+     "source": "tools._tool_board_trace: ayrıştırıcının iletisi dosyadan metin taşır, modele yansıtılmaz; CHANGELOG 1.6.0"}
   ],
   "scenarios": [
     {

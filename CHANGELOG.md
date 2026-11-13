@@ -1,6 +1,6 @@
 # Değişiklik Günlüğü
 
-## Yayımlanmadı
+## 1.6.0 — 2026-11-13
 
 Yeni (2026-11-13):
 
