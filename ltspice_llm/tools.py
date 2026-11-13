@@ -47,6 +47,7 @@ from .parser import LogParser, RawParser
 from .quantizer import quantize_circuit_parameters
 from .reference import ReferenceDocs, find_model_definitions
 from .schematic import AscSchematic, write_asc_file
+from .stability import raw_loop_margins
 from .visualizer import WaveformVisualizer
 
 #: `get_ltspice_tool_schemas(format=...)` için desteklenen biçimler
@@ -549,6 +550,33 @@ def _extended_tool_schemas() -> List[Dict[str, Any]]:
                                        "default": 35},
                 },
                 "required": ["circuit_name", "param_bounds", "target_metrics"],
+            },
+        },
+        {
+            "name": "analyze_loop_stability",
+            "description": (
+                "Simüle edilmiş bir .ac koşumunda geri besleme döngüsünün kararlılık paylarını hesaplar: kazanç geçişi "
+                "(|T| = 1), faz payı ve kazanç payı. Döngü, devreye seri bir AC enjeksiyon kaynağıyla açılmış olmalı "
+                "(Middlebrook: 'Vinj x y AC 1'; x kaynağın döngüye sürdüğü, y döngünün geri döndüğü düğüm) ve kaynak "
+                "düşük empedanslı bir çıkışla yüksek empedanslı bir giriş arasında durmalı. Döngü kazancı "
+                "T = -V(loop_output)/V(loop_input). Birden çok geçiş varsa hepsi listelenir; steplenmiş koşumda her "
+                "adım (1'den) ayrı sonuçtur ve 'params' o adımın parametre değerlerini verir. Paylar kararlılığı tek "
+                "başına kanıtlamaz: uyarılara bak."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "circuit_name": {"type": "string", "description": "AC analizi yapılmış devrenin adı."},
+                    "loop_input": {
+                        "type": "string",
+                        "description": "Enjeksiyon kaynağının döngüye sürdüğü düğüm ya da iz (örn: 'x' ya da 'V(x)').",
+                    },
+                    "loop_output": {
+                        "type": "string",
+                        "description": "Döngünün kaynağa geri döndüğü düğüm ya da iz (örn: 'y' ya da 'V(y)').",
+                    },
+                },
+                "required": ["circuit_name", "loop_input", "loop_output"],
             },
         },
         {
@@ -1571,6 +1599,21 @@ def _tool_export_csv(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -
     }
 
 
+def _tool_loop_stability(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
+    raw_file = adapter.workspace_dir / f"{name}.raw"
+    if not raw_file.exists():
+        return {"status": "ERROR", "message": f".raw dosyası bulunamadı: {raw_file}. Önce devreyi simüle edin."}
+    try:
+        info = raw_loop_margins(raw_file, str(args.get("loop_input") or ""), str(args.get("loop_output") or ""))
+    except ValueError as ex:
+        return {"status": "ERROR", "message": str(ex)}
+    return {
+        "status": "SUCCESS",
+        **info,
+        "message": f"{len(info['steps'])} adım için kararlılık payları hesaplandı (T = {info['loop_gain']}).",
+    }
+
+
 # --------------------------------------------------------------------------- karttan iz yolu
 def _board_file(adapter: LTSpiceAdapter, given: Any) -> Path:
     """
@@ -1681,6 +1724,7 @@ _CIRCUIT_TOOLS: Dict[str, Callable[[Dict[str, Any], str, LTSpiceAdapter], Dict[s
     "compare_circuits": _tool_compare_circuits,
     "export_waveforms_csv": _tool_export_csv,
     "read_board_trace": _tool_board_trace,
+    "analyze_loop_stability": _tool_loop_stability,
 }
 
 

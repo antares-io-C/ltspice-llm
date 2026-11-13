@@ -45,9 +45,19 @@ class _Item:
     value_index: Optional[int] = None  # fields içinde sayı olarak karşılaştırılan alan
 
 
+#: µ (Windows-1252 0xB5) ve casefold'un ona çevirdiği Yunanca μ, LTspice'ta u ile aynı mikro çarpandır
+#: (ADI SPICE-SYNTAX-REFERENCE "Convert 'µ' to 'u'").
+_MICRO = str.maketrans({"µ": "u", "μ": "u"})
+
+
+def _fold_token(token: str) -> str:
+    """ADI README "Node Naming: Names are case-insensitive"; sonekler de öyle (``1K`` = ``1k``); µ = u."""
+    return token.casefold().translate(_MICRO)
+
+
 def _fold(tokens: Sequence[str]) -> Tuple[str, ...]:
-    """ADI README "Node Naming: Names are case-insensitive"; sonekler de öyle (``1K`` = ``1k``)."""
-    return tuple(token.casefold() for token in tokens)
+    """Satırın alanları `_fold_token` ile; tek başına ``GND`` düğümü ``0``'dır (ADI README "`GND` is a synonym for `0`")."""
+    return tuple("0" if t == "gnd" else t for t in map(_fold_token, tokens))
 
 
 def _same_number(a: str, b: str) -> bool:
@@ -96,12 +106,12 @@ def _parse(content: str) -> Tuple[Dict[Tuple[str, str], _Item], Dict[str, _Loose
             for param, value in pairs:
                 name = scope + param
                 keyed[("param", name.casefold())] = _Item("param", name, f".param {param}={value}",
-                                                          (value.casefold(),), 0)
+                                                          (_fold_token(value),), 0)
         elif _OPTIONS_HEAD_RE.match(head):
             for token in re.sub(r"\s*=\s*", "=", " ".join(tokens[1:])).split():
                 option, has_value, value = token.partition("=")
                 keyed[("option", option.casefold())] = _Item("option", option, f".options {token}",
-                                                             (value.casefold(),), 0 if has_value else None)
+                                                             (_fold_token(value),), 0 if has_value else None)
         elif head in _ANALYSIS_HEADS:
             keyed[("analysis", "")] = _Item("analysis", tokens[0], text, _fold(tokens))
         elif head in _MEAS_HEADS:

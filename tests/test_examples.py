@@ -37,7 +37,7 @@ def load_example(monkeypatch):
 
 
 def test_every_numbered_example_is_listed():
-    assert len(ALL_EXAMPLES) == 17 and ALL_EXAMPLES[0].startswith("01_") and ALL_EXAMPLES[-1].startswith("21_")
+    assert len(ALL_EXAMPLES) == 18 and ALL_EXAMPLES[0].startswith("01_") and ALL_EXAMPLES[-1].startswith("22_")
 
 
 @pytest.mark.parametrize("stem", ALL_EXAMPLES)
@@ -65,11 +65,13 @@ _FAST_ARGS = {
     "16_process_and_memory_hardening": ["--hizli"],
     "17_gemini_review_3": ["--hizli"],
     "21_board_trace_to_simulation": ["--hizli"],
+    "22_loop_stability_capacitive_load": ["--hizli"],
 }
 #: Raporunu LTSPICE_LLM_REPORT_DIR'e yazan örnekler
 _OUTPUTS = {stem: [f"{stem}.html", f"{stem}.parca.html"] for stem in (
     "12_ltspice_reference_checks", "15_hotplug_damping_validation", "16_process_and_memory_hardening",
-    "17_gemini_review_3", "18_gemini_review_4", "19_simulation_to_slides", "21_board_trace_to_simulation")}
+    "17_gemini_review_3", "18_gemini_review_4", "19_simulation_to_slides", "21_board_trace_to_simulation",
+    "22_loop_stability_capacitive_load")}
 #: 14, testlerin yeniden oynattığı gerçek LTspice kayıtlarını (tests/data) yeniden yazar: test paketinde koşulmaz.
 #: 20, LTspice değil KiCad ister (CI'da ve çoğu LTspice makinesinde yok) ve kaydedici kipi tests/data'daki KiCad
 #: tanıklarını yeniden yazar: burada koşulmaz. Aynı karşılaştırmayı tests/test_board.py KiCad kuruluysa koşar,

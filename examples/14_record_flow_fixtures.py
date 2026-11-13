@@ -422,9 +422,34 @@ def record_compare(workspace):
               f"-> tests/data/{name}.*")
 
 
+# Üç tamponlu RC katı ve ters çeviren E3: döngü kazancı T = -V(y)/V(x) = kloop/(1 + jf/fc)³, fc = 1/(2π·1k·159.155n).
+# Vinj ideal kaynağın (E3) çıkışında: Middlebrook enjeksiyonu burada tam. Routh: K < 8 kararlı; 4 kararlı, 16 kararsız.
+LOOP3 = (
+    "* three-pole loop, Middlebrook voltage injection\n"
+    "Vinj x y AC 1\n"
+    "R1 x n1 1k\nC1 n1 0 159.155n\nE1 b1 0 n1 0 1\n"
+    "R2 b1 n2 1k\nC2 n2 0 159.155n\nE2 b2 0 n2 0 1\n"
+    "R3 b2 n3 1k\nC3 n3 0 159.155n\nE3 y 0 0 n3 {kloop}\n"
+    ".step param kloop list 4 16\n.ac dec 100 10 100k\n.save V(x) V(y)\n.end\n"
+)
+
+
+def record_loop3(workspace):
+    """tests/test_stability.py'deki analyze_loop_stability testi için steplenmiş gerçek .ac döngü kaydı."""
+    adapter = LTSpiceAdapter(workspace_dir=workspace, solver_threads=1)
+    res = adapter.run_netlist(LOOP3, circuit_name="ref26_ac_loop3", treat_as_text=True)
+    if not res.success:
+        raise SystemExit(f"Kayıt başarısız: {res.errors}")
+    log = LogParser.read_text(res.log_path).replace(str(workspace), r"C:\ws")
+    (DATA / "ref26_ac_loop3.log.txt").write_text(log, encoding="utf-8", newline="")
+    copy_raw(res.raw_path, DATA / "ref26_ac_loop3.raw", workspace)
+    (DATA / "ref26_ac_loop3.net").write_text(LOOP3, encoding="utf-8", newline="")
+    print(f"LTspice {adapter.ltspice_version()}: raw {res.raw_path.stat().st_size} bayt -> tests/data/ref26_ac_loop3.*")
+
+
 RECORDERS = {"flow": record_flow, "mc": record_monte_carlo, "safety": record_safety, "schematic": record_schematic,
              "crash": record_crash, "mean": record_mean, "stepraw": record_step_raw, "tstart": record_tstart,
-             "ini": record_ini, "measnames": record_meas_names, "compare": record_compare}
+             "ini": record_ini, "measnames": record_meas_names, "compare": record_compare, "loop3": record_loop3}
 
 
 def main(argv=None):

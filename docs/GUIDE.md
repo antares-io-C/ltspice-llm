@@ -26,7 +26,7 @@ Detailed reference for ltspice-llm: features, API examples, performance measurem
    - `create_or_replace_circuit`, `modify_parameters`, `plot_transient_waveforms`, `plot_bode_diagram`, `get_circuit_netlist`, `list_circuits`, `quantize_parameters`, `diagnose_circuit_issue`, `optimize_parameter`, `search_ltspice_reference`.
    - Schemas are obtained in `generic`, `openai`, `anthropic` and `gemini` formats with `get_ltspice_tool_schemas(format=...)`. The formats are produced according to the provider documentation and are not tested automatically against the live API.
    - Tool arguments can be a dictionary or JSON text (OpenAI sends arguments as text).
-   - The extended set (`include_extended=True`) adds, besides the design tools, `compare_circuits` (netlist and `.meas` difference of two circuits), `export_waveforms_csv` (writes waveforms to CSV) and `read_board_trace` (trace path and parasitic model from a KiCad board); details are in "LLM Agent Integration" below.
+   - The extended set (`include_extended=True`) adds, besides the design tools, `compare_circuits` (netlist and `.meas` difference of two circuits), `export_waveforms_csv` (writes waveforms to CSV), `read_board_trace` (trace path and parasitic model from a KiCad board) and `analyze_loop_stability` (phase and gain margin of a feedback loop from an `.ac` run); details are in "LLM Agent Integration" below.
 
 5. **Standard Component Quantization (E-Series Snapping):**
    - Rounds theoretical values (e.g.: $15.915\text{ k}\Omega, 1.414\text{ nF}$) to the **E6, E12, E24, E96** series (nearest, floor, ceil) and provides deviation analysis.
@@ -219,7 +219,7 @@ For a complete loop with Claude (model ID, `effort`, `fallbacks` for a refused r
 - The agent's default system prompt is Turkish; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` gives its English translation. Tool descriptions and the messages in tool results are Turkish regardless of the prompt.
 - For the extended tools, create the agent with `include_extended=True` and give the API `get_ltspice_tool_schemas("anthropic", include_extended=True)`.
 
-Extended tools (`include_extended=True`): schematic drawing, trace parasitics, hot-plug, SOA/derating, Monte Carlo, `optimize_parameters`, which tunes several parameters toward several `.meas` targets with Nelder-Mead, `compare_circuits`, which compares two circuits, `export_waveforms_csv`, which writes waveforms to a file, and `read_board_trace`, which reads a trace path from a KiCad board.
+Extended tools (`include_extended=True`): schematic drawing, trace parasitics, hot-plug, SOA/derating, Monte Carlo, `optimize_parameters`, which tunes several parameters toward several `.meas` targets with Nelder-Mead, `compare_circuits`, which compares two circuits, `export_waveforms_csv`, which writes waveforms to a file, `read_board_trace`, which reads a trace path from a KiCad board, and `analyze_loop_stability`, which gives the phase and gain margin of a feedback loop.
 
 ### Comparing two circuits
 
@@ -237,9 +237,9 @@ result = handle_tool_call("compare_circuits", {"circuit_a": "before", "circuit_b
 # result["measurements"]: a, b, delta, relative_change_percent and same_definition for each common measurement
 ```
 
-- `changes`: the variables that changed (`element`, `param`, `option`, `analysis`, `model`, `directive`). The title, comments, whitespace, line order, letter case, anything after `.end`, `.save` and the `.options threads` line added by the adapter are not differences. R, C and L values and `.param` and `.options` values are compared as numbers (`1k` = `1000`; `1M` is milli, `1Meg` is mega); the other fields are compared as text.
+- `changes`: the variables that changed (`element`, `param`, `option`, `analysis`, `model`, `directive`). The title, comments, whitespace, line order, letter case, anything after `.end`, `.save` and the `.options threads` line added by the adapter are not differences. R, C and L values and `.param` and `.options` values are compared as numbers (`1k` = `1000`; `1M` is milli, `1Meg` is mega); the other fields are compared as text. `GND` is the same node as `0` and `µ` the same suffix as `u`. Unnamed directives (`.ic`, `.lib`, ...) are compared line by line: their order is not a difference, but a line that appears twice counts twice.
 - `single_variable`: `true` if exactly one variable changed. If several variables changed, or the netlists are the same, `warnings` says so.
-- `measurements`: the common measurements. `delta = b - a`, `relative_change_percent = (b - a) / |a| * 100`; the percentage is `null` when `a` is zero. Values are not rounded. If `same_definition` is `false`, the `.meas` definition of the measurement differs between the two circuits and the two values do not measure the same thing.
+- `measurements`: the common measurements. `delta = b - a`, `relative_change_percent = (b - a) / |a| * 100`; the percentage is `null` when `a` is zero. Values are not rounded. If `same_definition` is `false`, the `.meas` definition of the measurement differs between the two circuits and the two values do not measure the same thing. The lists keep the order of the logs: `measurements` and `only_in_a` that of circuit a, `only_in_b` that of circuit b.
 - A stepped (`.step`) run is not compared: its measurements are the mean over the steps. Run each case to be compared under its own `circuit_name`.
 
 ### Exporting waveforms to CSV
@@ -257,6 +257,27 @@ export_waveforms_csv(run.raw_path, "rc_comma.csv", delimiter=";", decimal=",")  
 - Values are not rounded: each cell is the shortest text that reads back as the same number in the type it was stored in (in LTspice's default `.raw`, traces are float32 and time is float64).
 - `.ac` traces are written to the columns `re(V(out))` and `im(V(out))`. In a stepped run the first column is `step` (it starts at 1, as in the LTspice log).
 - The `export_waveforms_csv` tool writes the file into the workspace as `<circuit_name>.csv` and returns only the file path, the row count and the column names (the data does not go to the model); it also accepts `"tab"` for `delimiter`. `remove_circuit` and `cleanup_workspace` delete this file too.
+
+### Phase and gain margin of a feedback loop
+
+Break the loop with an AC source in series (Middlebrook voltage injection): in `Vinj x y AC 1`, `x` is the node the source drives into the loop and `y` is the node where the loop comes back. Put the source between a low-impedance output and a high-impedance input; otherwise the measured ratio is not the loop gain. Run an `.ac` analysis that saves both nodes.
+
+```python
+from ltspice_llm import LTSpiceAdapter, raw_loop_margins, stability_margins
+
+run = LTSpiceAdapter().run_netlist(netlist, circuit_name="loop", treat_as_text=True)
+info = raw_loop_margins(run.raw_path, loop_input="x", loop_output="y")
+# info: {"loop_gain": "-V(y)/V(x)", "steps": [{"step": 1, "crossover_hz": ..., "phase_margin_deg": ...,
+#        "phase_crossover_hz": ..., "gain_margin_db": ..., "gain_crossovers": [...], "phase_crossovers": [...],
+#        "warnings": [...]}]}
+margins = stability_margins(freq_hz, loop_gain)  # the same calculation on your own complex T(jω) samples
+```
+
+- The loop gain is `T = -V(y)/V(x)`. The gain crossover is where `|T| = 1`, and the phase margin is `180° + ∠T` there, in (-180°, 180°]. The phase crossover is where `T` crosses the negative real axis, and the gain margin is `-20·log10|T|` there. dB and phase are interpolated linearly in log f.
+- Every crossing is listed. The headline values are the pessimistic ones: the smallest phase margin and the gain margin closest to 0 dB. If `|T|` crosses 1 more than once, `warnings` says that the margins alone do not show stability (look at the Nyquist plot). If there is no crossing in the swept range, the value is `null` and `warnings` says why.
+- A stepped run gives one entry per step (starting at 1, as in the CSV export); `params` holds that step's parameter values from the `.log`, in the order LTspice ran them (for example `{"kloop": 4.0}`).
+- The `analyze_loop_stability` tool does the same for a model (extended set). The tests check it against an LTspice run of a three-pole loop whose margins are known in closed form.
+- End-to-end example: [examples/22_loop_stability_capacitive_load.py](../examples/22_loop_stability_capacitive_load.py) measures how a capacitive load lowers the phase margin of an op-amp follower and how an isolation resistor restores it, and checks the result against the overshoot of the step response.
 
 ### Reading a trace path from a KiCad board
 

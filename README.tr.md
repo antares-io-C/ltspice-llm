@@ -50,6 +50,13 @@ LLM ya da Python ──(devre)──► ltspice-llm ──► LTspice (arka plan
   hangi netlist değişkenlerinin değiştiğini ve `.meas` sonuçlarının önce/sonra farkını verir; `export_waveforms_csv`
   `.raw` izlerini Excel, MATLAB ya da pandas için CSV'ye yazar. İkisi de genişletilmiş araç kümesindedir
   (`include_extended=True`). [docs/KILAVUZ.md](docs/KILAVUZ.md)
+- **Geri besleme döngüsünün faz ve kazanç payını bulun.** Döngüyü bir AC kaynağıyla açıp (Middlebrook enjeksiyonu)
+  `.ac` koşun; `raw_loop_margins` her adım için kazanç geçişini, faz payını ve kazanç payını verir, bütün geçişleri
+  listeler. `analyze_loop_stability` aracı aynısını model için yapar (genişletilmiş küme). Payları kapalı biçimde
+  bilinen üç kutuplu bir döngünün LTspice koşumuna karşı sınandı. Örnek, kapasitif yükün op-amp izleyicinin faz payını
+  ne kadar düşürdüğünü ve yalıtım direncinin onu nasıl geri kazandırdığını ölçer.
+  [examples/22_loop_stability_capacitive_load.py](examples/22_loop_stability_capacitive_load.py),
+  [docs/KILAVUZ.md](docs/KILAVUZ.md)
 - **İz uzunluklarını KiCad kartından okuyun.** `read_kicad_board` bir `.kicad_pcb` dosyasını KiCad olmadan okur, iki
   pad arasındaki en kısa iz yolunu bulur ve netlist için R/L/C modeline çevirir; dielektrik ve bakır kalınlığı kartın
   katman yapısından alınır. `read_board_trace` aracı aynı işi modele yaptırır. Okuyucu kart dosyasını yalnızca okur

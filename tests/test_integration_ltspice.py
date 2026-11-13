@@ -514,7 +514,10 @@ def test_compare_circuits_attributes_the_delay_change_to_the_resistor(adapter):
 def test_export_waveforms_csv_of_a_real_run(adapter):
     """Elle: V(out)(t) = 5 (1 - exp(-t / RC)); RC = 1 ms, t = 8 ms -> 4,99832 V. Zaman ekseni 0 - 8 ms (`.tran 8m`).
     8 ms'de V(in) = 5 V da 1,7 mV yakındır; bu yüzden bütün iz formülle sınanır. Tolerans 5 mV: LTspice'ın göreli hata
-    toleransı reltol = 0.001 (ADI SIMULATION-COMMANDS-REFERENCE ".OPTIONS") × 5 V. V(in) formülden 5 V'a kadar sapar."""
+    toleransı reltol = 0.001 (ADI SIMULATION-COMMANDS-REFERENCE ".OPTIONS") × 5 V. V(in) formülden 5 V'a kadar sapar.
+    Daha sıkısı kaynaklı değil: nokta başına reltol·|V| + vntol (vntol = 1 µV) tutmuyor, çünkü reltol adım başına yerel
+    hatayı sınırlar, birikmiş hatayı değil (ölçüm 2026-11-13, LTspice 26.1.1: en kötü oran 2,47; test-reviewer
+    2026-11-11 genel 5 mV'yi gevşek bulmuştu, ölçülen en büyük fark 8,5 µV)."""
     created = handle_tool_call("create_or_replace_circuit", {"circuit_name": "it_csv", "netlist_code": CMP_RC},
                                adapter=adapter)
     assert created["status"] == "SUCCESS", created

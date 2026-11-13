@@ -38,7 +38,7 @@ from ltspice_llm import (
     handle_tool_call,
 )
 from ltspice_llm.adapter import AUTO_THREADS_MARK
-from ltspice_llm.export import _text_column
+from ltspice_llm.export import CSV_DECIMALS, CSV_DELIMITERS, _text_column
 from ltspice_llm.tools import _definition_owner
 
 DATA = Path(__file__).parent / "data"
@@ -233,7 +233,7 @@ def test_model_card_is_its_own_variable_and_belongs_to_its_subcircuit():
     (".lib a.lib\n.lib b.lib", ".lib b.lib", [("directive", ".lib", ".lib a.lib", None)]),
     (".lib a.lib\n.lib b.lib", ".lib b.lib\n.lib a.lib", []),
     (".temp 27", ".temp 27\n.ic V(out)=1", [("directive", ".ic", None, ".ic V(out)=1")]),
-    # compare_netlists belgesi (_unmatched): aynı satır iki kez varsa iki kez sayılır
+    # docs/GUIDE.md "Comparing two circuits" (`changes`): adsız direktifte iki kez geçen satır iki kez sayılır
     (".ic V(out)=1\n.ic V(out)=1", ".ic V(out)=1", [("directive", ".ic", ".ic V(out)=1", None)]),
 ])
 def test_unnamed_directives_count_once_per_changed_line(lines_a, lines_b, expected):
@@ -312,15 +312,21 @@ def _plain(value):
 
 @st.composite
 def _fresh_value(draw):
-    """(yazım, değer): tablodan bir çarpan, 1-4 basamaklı mantis; ya kuyruklu ya da gömülü ondalıklı."""
+    """(yazım, değer): tablodan bir çarpan, 1-4 basamaklı mantis, isteğe bağlı işaret (test-reviewer 2026-11-11: strateji
+    negatif değer üretmiyordu); ya kuyruklu ya da gömülü ondalıklı. Gömülü kesir LTspice'ta işaretten bağımsız eklenir:
+    -4k7 = (-4 + 0.7)k = -3300 (LTspice 26.1.1 ölçümü, examples/12; tests/test_quantizer.py)."""
+    sign = draw(st.sampled_from(["", "-", "+"]))
+    whole_sign = -1 if sign == "-" else 1
     suffix, factor = draw(st.sampled_from(_MULTIPLIERS))
     digits, decimals = draw(st.integers(1, 9999)), draw(st.integers(0, 3))
     if suffix and not decimals and draw(st.booleans()):
         fraction = draw(st.integers(1, 99))
-        return f"{digits}{_any_case(draw, suffix)}{fraction}", (digits + Fraction(f"0.{fraction}")) * factor
+        return (f"{sign}{digits}{_any_case(draw, suffix)}{fraction}",
+                (whole_sign * digits + Fraction(f"0.{fraction}")) * factor)
     text = str(digits).rjust(decimals + 1, "0")
     mantissa = f"{text[:-decimals]}.{text[-decimals:]}" if decimals else text
-    return f"{mantissa}{_any_case(draw, suffix)}{_any_case(draw, draw(st.sampled_from(_TAILS)))}", Fraction(mantissa) * factor
+    return (f"{sign}{mantissa}{_any_case(draw, suffix)}{_any_case(draw, draw(st.sampled_from(_TAILS)))}",
+            whole_sign * Fraction(mantissa) * factor)
 
 
 @st.composite
@@ -919,3 +925,58 @@ def test_workspace_cleanup_also_removes_the_exported_csv(adapter):
     assert (adapter.workspace_dir / "rc.csv").exists()
     adapter.cleanup_workspace(max_age_seconds=0)
     assert list(adapter.workspace_dir.glob("rc.*")) == []
+
+
+# ------------------------------------------------------------------ GND ve µ yazımları (test-reviewer 2026-11-11)
+_RC_SPELL = "* t\nV1 in 0 1\nR1 in out 1k\nC1 out 0 1u\n.param c=1u\n.tran 1m\n.end\n"
+
+
+@pytest.mark.parametrize("old, new", [
+    ("C1 out 0 1u", "C1 out GND 1u"),   # ADI README.md: "`GND` is a synonym for `0`"
+    ("C1 out 0 1u", "C1 out gnd 1u"),   # ADI README: "Node Naming: Names are case-insensitive"
+    ("C1 out 0 1u", "C1 out 0 1µ"),     # SPICE-SYNTAX-REFERENCE.md "Convert 'µ' to 'u'": µ (0xB5) LTspice'ta 1e-6
+    ("C1 out 0 1u", "C1 out 0 1μ"),     # Yunanca mu (U+03BC): casefold µ'yü bu harfe çevirir
+    (".param c=1u", ".param c=1µ"),
+])
+def test_ground_and_micro_spellings_are_not_differences(old, new):
+    assert compare_netlists(_RC_SPELL, _RC_SPELL.replace(old, new))["changes"] == []
+
+
+def test_ground_synonym_does_not_hide_a_real_node_change():
+    result = compare_netlists(_RC_SPELL, _RC_SPELL.replace("C1 out 0 1u", "C1 out in 1u"))
+    assert [change["name"] for change in result["changes"]] == ["C1"]
+
+
+def test_compare_tool_lists_measurements_only_in_a(adapter):
+    """Yukarıdaki iki gerçek koşum ters sırada: rc_tstart'a özgü ölçümler bu kez only_in_a'da, logun sırasıyla
+    (docs/GUIDE.md "Comparing two circuits": listeler logların sırasını korur)."""
+    _put(adapter, "full", "ref26_flow_rc")
+    _put(adapter, "late", "ref26_rc_tstart")
+    res = _compare(adapter, circuit_a="late", circuit_b="full")
+    assert res["only_in_a"] == ["t_fall", "t_fall_val", "t_rise", "t_rise_val", "v_avg"] and res["only_in_b"] == []
+
+
+def test_compare_tool_warns_about_a_failed_measurement_in_circuit_a(adapter):
+    """test_compare_tool_warns_about_a_measurement_that_failed ters sırada: başarısız ölçüm a devresindeyken de uyarılır
+    ve uyarı doğru devreyi adlandırır (test-reviewer 2026-11-11: yalnız b sırası sınanıyordu)."""
+    _put(adapter, "ref", "ref26_flow_rc")
+    _put(adapter, "probe", "ref26_cmp_meas_fail")
+    res = _compare(adapter, circuit_a="probe", circuit_b="ref")
+    failed = [w for w in res["warnings"] if "başarısız ölçüm" in w]
+    assert len(failed) == 1 and failed[0].count("'probe'") == 1 and failed[0].count("v_never") == 1
+    assert sum(w.count("'ref'") for w in res["warnings"]) == 0
+
+
+@pytest.mark.parametrize("args, expected", [
+    ({"circuit_name": "rc", "signals": ["I(R9)"]},
+     "Sinyal .raw dosyasında yok: 'I(R9)'. Kayıtlı izler: ['V(in)', 'V(out)']"),
+    ({"circuit_name": "rc", "delimiter": "|"}, f"delimiter {list(CSV_DELIMITERS)} değerlerinden biri olmalı: '|'"),
+    ({"circuit_name": "rc", "decimal": ";"}, f"decimal {list(CSV_DECIMALS)} değerlerinden biri olmalı: ';'"),
+    ({"circuit_name": "rc", "decimal": ","},
+     "Ondalık ayırıcı virgülken sütun ayırıcı virgül olamaz; delimiter=';' kullanın."),
+])
+def test_export_tool_error_messages_name_the_rejected_value(adapter, args, expected):
+    """İletinin tamamı: reddedilen değer ve kabul edilenler (test-reviewer 2026-11-11: parça araması iletinin geri
+    kalanını sınamıyordu, geçersiz decimal dalı hiç sınanmıyordu). Kayıtlı izler ref26_flow_rc.net'in `.save`'inden."""
+    _put(adapter, "rc", "ref26_flow_rc")
+    assert handle_tool_call("export_waveforms_csv", args, adapter=adapter) == {"status": "ERROR", "message": expected}

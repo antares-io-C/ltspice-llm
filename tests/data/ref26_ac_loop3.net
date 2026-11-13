@@ -1,0 +1,15 @@
+* three-pole loop, Middlebrook voltage injection
+Vinj x y AC 1
+R1 x n1 1k
+C1 n1 0 159.155n
+E1 b1 0 n1 0 1
+R2 b1 n2 1k
+C2 n2 0 159.155n
+E2 b2 0 n2 0 1
+R3 b2 n3 1k
+C3 n3 0 159.155n
+E3 y 0 0 n3 {kloop}
+.step param kloop list 4 16
+.ac dec 100 10 100k
+.save V(x) V(y)
+.end

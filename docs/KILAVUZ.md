@@ -26,7 +26,7 @@ ltspice-llm'in ayrıntılı başvuru belgesi: özellikler, API örnekleri, perfo
    - `create_or_replace_circuit`, `modify_parameters`, `plot_transient_waveforms`, `plot_bode_diagram`, `get_circuit_netlist`, `list_circuits`, `quantize_parameters`, `diagnose_circuit_issue`, `optimize_parameter`, `search_ltspice_reference`.
    - Şemalar `get_ltspice_tool_schemas(format=...)` ile `generic`, `openai`, `anthropic` ve `gemini` biçimlerinde alınır. Biçimler sağlayıcı dokümantasyonuna göre üretilir, canlı API üzerinde otomatik test edilmez.
    - Araç argümanları sözlük veya JSON metni olabilir (OpenAI argümanları metin olarak gönderir).
-   - Genişletilmiş küme (`include_extended=True`) tasarım araçlarına ek olarak `compare_circuits` (iki devrenin netlist ve `.meas` farkı), `export_waveforms_csv` (dalga formlarını CSV'ye yazar) ve `read_board_trace` (KiCad kartından iz yolu ve parazitik modeli) araçlarını içerir; ayrıntı aşağıda "LLM Ajanı Entegrasyonu" bölümünde.
+   - Genişletilmiş küme (`include_extended=True`) tasarım araçlarına ek olarak `compare_circuits` (iki devrenin netlist ve `.meas` farkı), `export_waveforms_csv` (dalga formlarını CSV'ye yazar), `read_board_trace` (KiCad kartından iz yolu ve parazitik modeli) ve `analyze_loop_stability` (bir `.ac` koşumundan geri besleme döngüsünün faz ve kazanç payı) araçlarını içerir; ayrıntı aşağıda "LLM Ajanı Entegrasyonu" bölümünde.
 
 5. **Standart Komponent Kuantalama (E-Series Snapping):**
    - Teorik değerleri (örn: $15.915\text{ k}\Omega, 1.414\text{ nF}$) **E6, E12, E24, E96** serilerine yuvarlar (nearest, floor, ceil) ve sapma analizini sunar.
@@ -219,7 +219,7 @@ Claude ile eksiksiz döngü (model kimliği, `effort`, reddedilen istek için `f
 - Ajanın varsayılan sistem istemi Türkçedir; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` İngilizce çevirisini verir. Araç açıklamaları ve araç sonuçlarındaki mesajlar istemden bağımsız olarak Türkçedir.
 - Genişletilmiş araçlar için ajanı `include_extended=True` ile kurun ve API'ye `get_ltspice_tool_schemas("anthropic", include_extended=True)` verin.
 
-Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo, birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`, iki devreyi karşılaştıran `compare_circuits`, dalga formlarını dosyaya yazan `export_waveforms_csv` ve KiCad kartından iz yolu okuyan `read_board_trace`.
+Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo, birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`, iki devreyi karşılaştıran `compare_circuits`, dalga formlarını dosyaya yazan `export_waveforms_csv`, KiCad kartından iz yolu okuyan `read_board_trace` ve geri besleme döngüsünün faz ve kazanç payını veren `analyze_loop_stability`.
 
 ### İki devreyi karşılaştırma
 
@@ -237,9 +237,9 @@ result = handle_tool_call("compare_circuits", {"circuit_a": "before", "circuit_b
 # result["measurements"]: her ortak ölçüm için a, b, delta, relative_change_percent, same_definition
 ```
 
-- `changes`: değişen değişkenler (`element`, `param`, `option`, `analysis`, `model`, `directive`). Başlık, yorum, boşluk, satır sırası, büyük/küçük harf, `.end` sonrası, `.save` ve adaptörün eklediği `.options threads` satırı fark sayılmaz. R, C ve L değerleri ile `.param` ve `.options` değerleri sayı olarak karşılaştırılır (`1k` = `1000`; `1M` mili, `1Meg` megadır); öbür alanlar metin olarak karşılaştırılır.
+- `changes`: değişen değişkenler (`element`, `param`, `option`, `analysis`, `model`, `directive`). Başlık, yorum, boşluk, satır sırası, büyük/küçük harf, `.end` sonrası, `.save` ve adaptörün eklediği `.options threads` satırı fark sayılmaz. R, C ve L değerleri ile `.param` ve `.options` değerleri sayı olarak karşılaştırılır (`1k` = `1000`; `1M` mili, `1Meg` megadır); öbür alanlar metin olarak karşılaştırılır. `GND` `0` ile aynı düğüm, `µ` `u` ile aynı sonektir. Adsız direktifler (`.ic`, `.lib`, ...) satır satır karşılaştırılır: sıraları fark değildir, ama iki kez geçen satır iki kez sayılır.
 - `single_variable`: tam olarak bir değişken değiştiyse `true`. Birden çok değişken değiştiyse ya da netlistler aynıysa `warnings` bunu söyler.
-- `measurements`: ortak ölçümler. `delta = b - a`, `relative_change_percent = (b - a) / |a| * 100`; `a` sıfırsa yüzde `null`'dur. Değerler yuvarlanmaz. `same_definition` `false` ise ölçümün `.meas` tanımı iki devrede farklıdır ve iki değer aynı şeyi ölçmez.
+- `measurements`: ortak ölçümler. `delta = b - a`, `relative_change_percent = (b - a) / |a| * 100`; `a` sıfırsa yüzde `null`'dur. Değerler yuvarlanmaz. `same_definition` `false` ise ölçümün `.meas` tanımı iki devrede farklıdır ve iki değer aynı şeyi ölçmez. Listeler logların sırasını korur: `measurements` ve `only_in_a` a devresininkini, `only_in_b` b devresininkini.
 - Steplenmiş (`.step`) koşum karşılaştırılmaz: ölçümleri adımların ortalamasıdır. Karşılaştırılacak her durumu ayrı `circuit_name` ile koşun.
 
 ### Dalga formlarını CSV'ye aktarma
@@ -257,6 +257,27 @@ export_waveforms_csv(run.raw_path, "rc_comma.csv", delimiter=";", decimal=",")  
 - Değerler yuvarlanmaz: her hücre, sayının kaydedildiği türde geri okunan en kısa yazımıdır (LTspice'ın varsayılan `.raw`'ında izler float32, zaman float64).
 - `.ac` izleri `re(V(out))` ve `im(V(out))` sütunlarına yazılır. Steplenmiş koşumda ilk sütun `step`'tir (LTspice logundaki gibi 1'den başlar).
 - `export_waveforms_csv` aracı dosyayı çalışma alanına `<circuit_name>.csv` olarak yazar ve yalnız dosya yolunu, satır sayısını ve sütun adlarını döndürür (veri modele gitmez); `delimiter` için `"tab"` da kabul eder. `remove_circuit` ve `cleanup_workspace` bu dosyayı da siler.
+
+### Geri besleme döngüsünün faz ve kazanç payı
+
+Döngüyü seri bir AC kaynağıyla açın (Middlebrook gerilim enjeksiyonu): `Vinj x y AC 1`'de `x` kaynağın döngüye sürdüğü düğüm, `y` döngünün geri döndüğü düğümdür. Kaynağı düşük empedanslı bir çıkışla yüksek empedanslı bir giriş arasına koyun; yoksa ölçülen oran döngü kazancı değildir. İki düğümü de kaydeden bir `.ac` analizi koşun.
+
+```python
+from ltspice_llm import LTSpiceAdapter, raw_loop_margins, stability_margins
+
+run = LTSpiceAdapter().run_netlist(netlist, circuit_name="loop", treat_as_text=True)
+info = raw_loop_margins(run.raw_path, loop_input="x", loop_output="y")
+# info: {"loop_gain": "-V(y)/V(x)", "steps": [{"step": 1, "crossover_hz": ..., "phase_margin_deg": ...,
+#        "phase_crossover_hz": ..., "gain_margin_db": ..., "gain_crossovers": [...], "phase_crossovers": [...],
+#        "warnings": [...]}]}
+margins = stability_margins(freq_hz, loop_gain)  # kendi karmaşık T(jω) örneklerinizde aynı hesap
+```
+
+- Döngü kazancı `T = -V(y)/V(x)`. Kazanç geçişi `|T| = 1` olan yerdir; faz payı orada `180° + ∠T`, (-180°, 180°] aralığında. Faz geçişi `T`'nin negatif gerçel ekseni kestiği yerdir; kazanç payı orada `-20·log10|T|`. dB ve faz log f'e göre doğrusal aradeğerlenir.
+- Bütün geçişler listelenir. Başlık değerleri karamsar olanlardır: en küçük faz payı ve 0 dB'ye en yakın kazanç payı. `|T|` 1'i birden çok kez keserse `warnings` payların tek başına kararlılığı göstermediğini söyler (Nyquist eğrisine bakın). Taranan aralıkta geçiş yoksa değer `null` olur ve `warnings` nedenini söyler.
+- Steplenmiş koşum adım başına bir sonuç verir (CSV dışa aktarımındaki gibi 1'den başlar); `params` o adımın parametre değerlerini `.log`'dan, LTspice'ın koştuğu sırayla verir (ör. `{"kloop": 4.0}`).
+- `analyze_loop_stability` aracı aynısını model için yapar (genişletilmiş küme). Testler onu, payları kapalı biçimde bilinen üç kutuplu bir döngünün LTspice koşumuna karşı denetler.
+- Uçtan uca örnek: [examples/22_loop_stability_capacitive_load.py](../examples/22_loop_stability_capacitive_load.py) kapasitif yükün op-amp izleyicinin faz payını ne kadar düşürdüğünü ve yalıtım direncinin onu nasıl geri kazandırdığını ölçer, sonucu adım yanıtındaki aşmayla karşılaştırır.
 
 ### Karttan iz yolu okuma (KiCad)
 

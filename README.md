@@ -50,6 +50,13 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
   simulated circuits and gives the before/after difference of their `.meas` results; `export_waveforms_csv` writes
   `.raw` traces to CSV for Excel, MATLAB or pandas. Both are in the extended tool set (`include_extended=True`).
   [docs/GUIDE.md](docs/GUIDE.md#comparing-two-circuits)
+- **Check the phase and gain margin of a feedback loop.** Break the loop with an AC source (Middlebrook injection) and
+  run `.ac`; `raw_loop_margins` gives the gain crossover, phase margin and gain margin for each step and lists every
+  crossing. The `analyze_loop_stability` tool lets a model do the same (extended set). Tested against an LTspice run of
+  a three-pole loop whose margins are known in closed form. The example measures how a capacitive load lowers the
+  phase margin of an op-amp follower and how an isolation resistor restores it.
+  [examples/22_loop_stability_capacitive_load.py](examples/22_loop_stability_capacitive_load.py),
+  [docs/GUIDE.md](docs/GUIDE.md#phase-and-gain-margin-of-a-feedback-loop)
 - **Read trace lengths from a KiCad board.** `read_kicad_board` reads a `.kicad_pcb` file without KiCad, finds the
   shortest trace path between two pads and turns it into an R/L/C model for the netlist, with the dielectric and
   copper thickness taken from the board's stackup; the `read_board_trace` tool lets a model do the same. The reader

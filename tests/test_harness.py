@@ -669,3 +669,23 @@ def test_session_start_tells_claude_and_the_user_different_things(tmp_path, monk
     assert context.count("12_ltspice_reference_checks.py") == 1 and user.count("12_ltspice_reference_checks.py") == 0
     assert user.count("26.1.1 -> 26.2.0") == 1 and user.count("yeniden çalıştırılması gerekiyor") == 1
 
+
+
+def test_guard_tests_answers_a_full_claude_event_in_claude_format(tmp_path):
+    """Gerçek Claude Code PreToolUse olayı (CLAUDE_EVENT alanlarıyla; Claude Code hooks belgesi "Hook Input") Antigravity
+    sanılmamalı: guard_tests'in kendi anahtar listesi bu alanlardan birini içerse karar Claude Code'un okumadığı biçime
+    gider ve koruma sessizce kapanır. Karar hookSpecificOutput'ta, hookEventName ile ("PreToolUse Decision Control");
+    .asc reddinde de (test-reviewer 2026-11-11)."""
+    test_file = tmp_path / "tests" / "test_x.py"
+    test_file.parent.mkdir()
+    test_file.write_text(TESTS, encoding="utf-8")
+    base = {**CLAUDE_EVENT, "cwd": str(tmp_path), "hook_event_name": "PreToolUse"}
+    asc_write = {**base, "tool_name": "Write",
+                 "tool_input": {"file_path": str(tmp_path / "devre.asc"), "content": "Version 4\n"}}
+    weakening = {**base, "tool_name": "Edit", "tool_input": {
+        "file_path": str(test_file), "old_string": "    assert f(2) == 3\n", "new_string": ""}}
+    for event, decision in ((asc_write, "deny"), (weakening, "ask")):
+        out = _run_guard(event, tmp_path)
+        assert list(out) == ["hookSpecificOutput"]
+        assert out["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+        assert out["hookSpecificOutput"]["permissionDecision"] == decision

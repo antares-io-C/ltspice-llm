@@ -1,5 +1,27 @@
 # Değişiklik Günlüğü
 
+## Yayımlanmadı
+
+Yeni (2026-11-13):
+
+- Döngü kararlılığı (`ltspice_llm.stability`): `stability_margins` karmaşık döngü kazancı T(jω) örneklerinden kazanç
+  geçişini, faz payını ve kazanç payını verir. Bütün geçişler listelenir; başlık değerleri karamsar seçilir (en küçük
+  faz payı, 0 dB'ye en yakın kazanç payı). dB ve faz log f'e göre aradeğerlenir. `raw_loop_margins` aynı hesabı bir
+  `.ac` koşumunun `.raw`'ından, Middlebrook enjeksiyonuyla açılmış döngüde (T = -V(y)/V(x)) adım adım yapar.
+- `analyze_loop_stability` aracı (genişletilmiş küme; varsayılan 10 araç değişmedi). Steplenmiş koşumda her adımın
+  parametre değerleri `.log`'dan `params` olarak döner.
+
+Düzeltildi (2026-11-13):
+
+- `compare_netlists` / `compare_circuits`: `GND` düğümü `0` sayılır (ADI README "`GND` is a synonym for `0`"); `1µ`
+  (ve casefold'un ürettiği Yunanca `μ`) `1u` sayılır, `.param` ve `.options` değerlerinde de. Eskiden ikisi de değişmemiş
+  devrede "değişken değişti" diyordu.
+- Testlerin beklenen değerleri üç kutuplu döngünün kapalı biçiminden ve Routh-Hurwitz ölçütünden gelir. Araç testi
+  LTspice 26.1.1'in kaydettiği gerçek bir `.ac` koşumunu okur (`examples/14` "loop3", `tests/data/ref26_ac_loop3.*`).
+- `examples/22_loop_stability_capacitive_load.py`: kapasitif yüklü op-amp izleyicide faz payı (yüksüz → CL → CL +
+  Riso, her adımda tek değişken) ve adım yanıtındaki aşma; `SimulationReport` ile rapor. Aynı T(jω) kapalı biçimden de
+  hesaplanıp LTspice'ınkiyle karşılaştırılır.
+
 ## 1.6.0 — 2026-11-13
 
 Yeni (2026-11-13):
