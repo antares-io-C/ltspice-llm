@@ -31,10 +31,11 @@ from .adapter import (
     _set_element_value,
 )
 from .agent import CircuitOptimizer
+from .board import read_kicad_board
 from .compare import _measurement_names, compare_measurements, compare_netlists
 from .diagnostics import SPICEDiagnostics
 from .export import export_waveforms_csv
-from .netlist import file_access_problems, insert_before_end
+from .netlist import _outside_workspace, file_access_problems, insert_before_end
 from .parasitics import (
     COPPER_MM_PER_OZ,
     DEFAULT_BULK_RATIO,
@@ -384,6 +385,51 @@ def _extended_tool_schemas() -> List[Dict[str, Any]]:
                     "relative_permittivity": {"type": "number", "description": "Bağıl dielektrik sabiti Er (varsayılan 4.0: MT-094 örneğindeki FR-4; laminatınızınkini verin).", "default": 4.0},
                 },
                 "required": ["length_mm", "width_mm"],
+            },
+        },
+        {
+            "name": "read_board_trace",
+            "description": (
+                "KiCad kart dosyasından (.kicad_pcb, KiCad 6 ve sonrası) iki pad arasındaki en kısa iz yolunu okur ve "
+                "parazitik modelini verir: parça parça uzunluk, genişlik ve katman, via sayısı; dielektrik kalınlığı, "
+                "bağıl geçirgenlik ve bakır kalınlığı kartın katman yapısından okunur (IPC-2141 microstrip, ADI "
+                "MT-094). Dosya yalnızca okunur; yol çalışma alanına görelidir. Padler yalnız bakır dökümle bağlıysa, "
+                "yol iç katmandaysa (stripline) ya da bağlantı yönlendirilmemişse ERROR döner: uzunluk uydurulmaz. "
+                "Via'lar sayılır; değerleri verilmezse ideal kısa devredir. 'spice_subcircuit' '.subckt <ad> in out "
+                "ref' biçimindedir (ref: dönüş düğümü, genellikle 0). 'notes' modelin varsayımlarını söyler (izin "
+                "altındaki dönüş düzlemi, paralel yol, döküm)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "board_path": {
+                        "type": "string",
+                        "description": "Çalışma alanına göre .kicad_pcb dosyasının yolu (örn: 'kart.kicad_pcb').",
+                    },
+                    "from_pad": {"type": "string", "description": "Başlangıç padi, 'REF.PAD' biçiminde (örn: 'U3.2')."},
+                    "to_pad": {"type": "string",
+                               "description": "Bitiş padi, 'REF.PAD' biçiminde (örn: 'C5.1'); aynı nette olmalı."},
+                    "temperature_c": {"type": "number",
+                                      "description": "Bakır sıcaklığı (°C, varsayılan 25); yalnız direnci etkiler.",
+                                      "default": 25.0},
+                    "via_inductance_nh": {
+                        "type": "number",
+                        "description": "İsteğe bağlı girdi: via başına seri endüktans (nH). Verilmezse via modellenmez.",
+                    },
+                    "via_resistance_mohm": {"type": "number",
+                                            "description": "İsteğe bağlı girdi: via başına seri direnç (mOhm)."},
+                    "height_mm": {
+                        "type": "number",
+                        "description": "İsteğe bağlı: dielektrik kalınlığı (mm). Kartta katman yapısı yoksa verin; "
+                                       "verilirse karttakinin yerine geçer.",
+                    },
+                    "relative_permittivity": {"type": "number",
+                                              "description": "İsteğe bağlı: bağıl geçirgenlik er (kartta yoksa verin)."},
+                    "copper_thickness_um": {"type": "number",
+                                            "description": "İsteğe bağlı: bakır kalınlığı (mikrometre; kartta yoksa "
+                                                           "verin)."},
+                },
+                "required": ["board_path", "from_pad", "to_pad"],
             },
         },
         {
@@ -1525,6 +1571,87 @@ def _tool_export_csv(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -
     }
 
 
+# --------------------------------------------------------------------------- karttan iz yolu
+def _board_file(adapter: LTSpiceAdapter, given: Any) -> Path:
+    """
+    ``read_board_trace``'in okuyacağı kart dosyası. Netlistteki ``.include`` politikasıyla aynı: ``allow_file_access``
+    False iken yol çalışma alanının içinde kalmalı (mutlak yol, ``~``, ``..`` ve ``%VAR%`` reddedilir; çalışma
+    alanındaki bir bağlantının, symlink ya da junction, dışarıyı göstermesi de). Yalnız ``.kicad_pcb`` okunur.
+    ValueError: yol reddedildi.
+    """
+    text = str(given or "").strip().strip('"')
+    if not text:
+        raise ValueError("'board_path' gereklidir (çalışma alanındaki .kicad_pcb dosyası).")
+    if Path(text).suffix.lower() != ".kicad_pcb":
+        raise ValueError(f"Yalnız KiCad kart dosyası (.kicad_pcb) okunur: {text!r}")
+    workspace = adapter.workspace_dir.resolve()
+    if _FILE_ACCESS.get():
+        candidate = Path(text).expanduser()
+        return candidate if candidate.is_absolute() else workspace / candidate
+    if _outside_workspace(text):
+        raise ValueError(f"Kart dosyası çalışma alanının içinde olmalı: {text!r}. Kartı çalışma alanına kopyalayın "
+                         "(girdi güvenilirse handle_tool_call(..., allow_file_access=True)).")
+    candidate = (workspace / text).resolve()
+    if not candidate.is_relative_to(workspace):
+        raise ValueError(f"Kart dosyası çalışma alanının içinde olmalı: {text!r} çalışma alanının dışını gösteren bir "
+                         "bağlantıdan geçiyor.")
+    return candidate
+
+
+def _tool_board_trace(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
+    """``read_board_trace``: karttaki iki pad arasındaki iz yolu ve parazitik modeli (`ltspice_llm.board`)."""
+    try:
+        board_file = _board_file(adapter, args.get("board_path"))
+    except ValueError as ex:
+        return {"status": "ERROR", "message": str(ex)}
+    if not board_file.is_file():
+        return {"status": "ERROR", "message": f"Kart dosyası bulunamadı: {str(args.get('board_path')).strip()!r}"}
+    start, end = (str(args.get(key) or "").strip() for key in ("from_pad", "to_pad"))
+    if not start or not end:
+        return {"status": "ERROR", "message": "'from_pad' ve 'to_pad' gereklidir, 'REF.PAD' biçiminde (örn: 'U3.2')."}
+    try:
+        board = read_kicad_board(board_file)
+    except ValueError as ex:
+        message = str(ex)
+        # Ayrıştırıcının ve sayı dönüşümünün iletisi dosyadan metin taşır: model çalışma alanındaki bir dosyayı
+        # .kicad_pcb adıyla okutup içeriğini hata iletisinden öğrenemesin. Okuyucunun kendi iletileri metin taşımaz.
+        if not message.startswith((f"{board_file.name}:", "kart dosyası: eksik alan")):
+            message = f"{board_file.name}: KiCad kart dosyası olarak okunamadı (bozuk ya da bir .kicad_pcb dosyası değil)."
+        return {"status": "ERROR", "message": message}
+
+    def number(key: str, scale: float = 1.0) -> Optional[float]:
+        value = args.get(key)
+        return None if value is None else float(value) * scale
+
+    temperature = number("temperature_c")
+    copper_um = number("copper_thickness_um")
+    try:
+        path = board.trace_path(start, end)
+        model = path.parasitics(
+            temp_c=25.0 if temperature is None else temperature,
+            height_mm=number("height_mm"),
+            er=number("relative_permittivity"),
+            copper_oz=None if copper_um is None else copper_um / (COPPER_MM_PER_OZ * 1e3),
+            via_inductance_h=number("via_inductance_nh", 1e-9),
+            via_resistance_ohm=number("via_resistance_mohm", 1e-3),
+        )
+    except ValueError as ex:   # BoardPathError da ValueError'dır
+        return {"status": "ERROR", "message": str(ex), "board": board.summary()}
+    subckt = "PCB_PATH_" + re.sub(r"[^A-Za-z0-9]+", "_", f"{path.start}_{path.end}").strip("_").upper()
+    return {
+        "status": "SUCCESS",
+        "board": board.summary(),
+        "path": path.to_dict(),
+        "resistance_ohm": model.r_dc,
+        "inductance_nh": model.l_trace * 1e9,
+        "capacitance_pf": model.c_trace * 1e12,
+        "propagation_delay_ps": model.tpd * 1e12,
+        "notes": model.notes,
+        "spice_subcircuit": model.to_spice_subckt(subckt),
+        "usage": f"X1 <from_node> <to_node> 0 {subckt} (ref portu dönüş düğümüdür, genellikle 0).",
+    }
+
+
 # --------------------------------------------------------------------------- dağıtım
 #: Saf hesap ve belge araçları: LTspice kurulu olmasa da çalışır, adaptör oluşturulmaz.
 _PURE_TOOLS: Dict[str, Callable[[Dict[str, Any], str], Dict[str, Any]]] = {
@@ -1553,6 +1680,7 @@ _CIRCUIT_TOOLS: Dict[str, Callable[[Dict[str, Any], str, LTSpiceAdapter], Dict[s
     "simulate_monte_carlo": _tool_monte_carlo,
     "compare_circuits": _tool_compare_circuits,
     "export_waveforms_csv": _tool_export_csv,
+    "read_board_trace": _tool_board_trace,
 }
 
 

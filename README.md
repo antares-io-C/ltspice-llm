@@ -50,6 +50,13 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
   simulated circuits and gives the before/after difference of their `.meas` results; `export_waveforms_csv` writes
   `.raw` traces to CSV for Excel, MATLAB or pandas. Both are in the extended tool set (`include_extended=True`).
   [docs/GUIDE.md](docs/GUIDE.md#comparing-two-circuits)
+- **Read trace lengths from a KiCad board.** `read_kicad_board` reads a `.kicad_pcb` file without KiCad, finds the
+  shortest trace path between two pads and turns it into an R/L/C model for the netlist, with the dielectric and
+  copper thickness taken from the board's stackup; the `read_board_trace` tool lets a model do the same. The reader
+  only reads the board file and was checked against KiCad's own computation. The end-to-end example puts the path into
+  a supply circuit and measures its DC drop and the dip at a load step in LTspice.
+  [examples/21_board_trace_to_simulation.py](examples/21_board_trace_to_simulation.py),
+  [docs/GUIDE.md](docs/GUIDE.md#reading-a-trace-path-from-a-kicad-board)
 - **Turn results into slides and animated GIFs.** Two agent skills build an editable `.pptx` deck and looping waveform
   GIFs from simulation results; the end-to-end example runs LTspice and produces the report, two GIFs and a deck.
   [examples/19_simulation_to_slides.py](examples/19_simulation_to_slides.py),

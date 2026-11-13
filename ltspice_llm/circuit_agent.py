@@ -40,8 +40,8 @@ class AutonomousCircuitAgent:
     araç mesajları ``name`` ve ``tool_call_id`` taşıyabilir. Sağlayıcıya özgü biçime çevirmek çağıranın işidir.
     ``tool_log`` ise yürütülen her araç çağrısının (ad, argüman, durum, süre) denetim kaydıdır.
 
-    ``include_extended=True`` modele temel 10 aracın yanında şema çizimi, iz parazitikleri, hot-plug, SOA/derating ve
-    Monte Carlo araçlarını da sunar (bkz. `get_ltspice_tool_schemas`).
+    ``include_extended=True`` modele temel 10 aracın yanında şema çizimi, iz parazitikleri, KiCad kartından iz yolu,
+    hot-plug, SOA/derating ve Monte Carlo araçlarını da sunar (bkz. `get_ltspice_tool_schemas`).
 
     ``system_prompt`` geçmişin ilk (system) mesajıdır; `reset` de onu kullanır. Verilmezse Türkçe
     `CIRCUIT_DESIGNER_SYSTEM_PROMPT`; İngilizcesi `CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN`. Araç açıklamaları ve araç

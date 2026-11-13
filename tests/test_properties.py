@@ -11,12 +11,16 @@ Daha çok örnek: ``HYPOTHESIS_PROFILE=ci python -m pytest tests/test_properties
 
 import math
 import re
+import tempfile
+from pathlib import Path
 
 import pytest
 from hypothesis import assume, example, given
 from hypothesis import strategies as st
 
+from kicad_text import board_text, point_pad, segment
 from ltspice_llm.adapter import _set_element_value
+from ltspice_llm.board import _closest_seg_seg, parse_sexpr, read_kicad_board
 from ltspice_llm.netlist import insert_before_end
 from ltspice_llm.quantizer import SERIES_MAP, format_spice_value, parse_spice_value, snap_to_e_series
 from ltspice_llm.schematic import decode_asc_bytes, encode_asc_text
@@ -321,3 +325,160 @@ def test_schematic_and_its_netlist_agree_on_element_values(kind, value, value_fi
         (value_line,) = [ln for ln in from_asc[0].splitlines() if ln.startswith("SYMATTR Value ")]
         (element_line,) = [ln for ln in from_net[0].splitlines() if ln.startswith(f"{name} ")]
         assert value_line[len("SYMATTR Value "):] == element_line[len(f"{name} a 0 "):]
+
+
+# --------------------------------------------------------------------------------------------------- KiCad kart okuyucu
+# _closest_seg_seg için bağımsız oracle (2B): parçalar kesişiyorsa (dokunma dahil) uzaklık 0; değilse en kısa uzaklık
+# dört uç noktanın öteki parçaya uzaklıklarının en küçüğüdür (kesişmeyen iki doğru parçasında en yakın nokta çiftinin
+# biri her zaman bir uçtadır).
+def _point_segment(px, py, ax, ay, bx, by):
+    dx, dy = bx - ax, by - ay
+    length_sq = dx * dx + dy * dy
+    u = 0.0 if length_sq == 0 else min(max(((px - ax) * dx + (py - ay) * dy) / length_sq, 0.0), 1.0)
+    return math.hypot(px - (ax + u * dx), py - (ay + u * dy))
+
+
+def _cross(ox, oy, ax, ay, bx, by):
+    return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
+
+
+def _segments_intersect(p1, q1, p2, q2):
+    d1, d2 = _cross(*p2, *q2, *p1), _cross(*p2, *q2, *q1)
+    d3, d4 = _cross(*p1, *q1, *p2), _cross(*p1, *q1, *q2)
+    if ((d1 > 0 > d2) or (d1 < 0 < d2)) and ((d3 > 0 > d4) or (d3 < 0 < d4)):
+        return True
+    return any(_point_segment(*pt, *a, *b) == 0.0 for pt, a, b in ((p1, p2, q2), (q1, p2, q2), (p2, p1, q1), (q2, p1, q1)))
+
+
+coords = st.floats(min_value=-100, max_value=100, allow_nan=False, allow_infinity=False)
+points = st.tuples(coords, coords)
+
+
+@given(points, points, points, points)
+@example((0, 0), (10, 0), (5, -5), (5, 5))       # çapraz (X): 0
+@example((0, 0), (10, 0), (5, 0), (15, 0))       # aynı doğruda örtüşen: 0
+@example((0, 0), (10, 0), (12, 0), (15, 0))      # aynı doğruda ayrık: 2
+@example((0, 0), (10, 0), (0, 1), (10, 1))       # paralel: 1
+@example((0, 0), (10, 0), (5, 3), (5, 3))        # nokta: 3
+@example((1, 1), (1, 1), (4, 5), (4, 5))         # iki nokta: 5
+@example((0, 0), (10, 0), (5, 0), (5, 4))        # T: dalın ucu ana parçanın üstünde
+# Paralele yakın parçalar (test-reviewer, 2026-11-13; ci profili): ortak uçta 0 yerine 9e-5 / 6e-8 / 6e-7 dönüyordu
+@example((0, 0), (100, 0), (100, 0), (0, 9e-5))
+@example((0, 0), (0, 1), (0, 1), (5.96e-8, 0))
+@example((0, 2.54e-5), (1, 8), (12, 5), (13, 13))
+def test_closest_segment_distance_matches_an_independent_oracle(p1, q1, p2, q2):
+    d, s, t = _closest_seg_seg(*p1, *q1, *p2, *q2)
+    if _segments_intersect(p1, q1, p2, q2):
+        expected = 0.0
+    else:
+        expected = min(_point_segment(*p1, *p2, *q2), _point_segment(*q1, *p2, *q2),
+                       _point_segment(*p2, *p1, *q1), _point_segment(*q2, *p1, *q1))
+    assert d == pytest.approx(expected, abs=1e-9 * (1 + max(map(abs, (*p1, *q1, *p2, *q2)))))
+    # Döndürülen parametreler o uzaklığı veren noktalar: 0 <= s, t <= 1
+    assert 0.0 <= s <= 1.0 and 0.0 <= t <= 1.0
+    a = (p1[0] + s * (q1[0] - p1[0]), p1[1] + s * (q1[1] - p1[1]))
+    b = (p2[0] + t * (q2[0] - p2[0]), p2[1] + t * (q2[1] - p2[1]))
+    assert math.hypot(a[0] - b[0], a[1] - b[1]) == pytest.approx(d, abs=1e-9)
+
+
+@st.composite
+def monotone_routes(draw):
+    """
+    x'i en az 1 mm artan kırık çizgi (iz genişliği <= 0.5 mm): komşu olmayan parçalar ve uçtaki padler birbirine
+    değemez, parçalar yalnız ortak uçlarında birleşir. Yolun uzunluğu böylece parça uzunluklarının toplamıdır (oracle).
+    """
+    count = draw(st.integers(min_value=1, max_value=8))
+    xs = [0.0]
+    for _ in range(count):
+        xs.append(xs[-1] + draw(st.floats(min_value=1.0, max_value=20.0)))
+    ys = [draw(st.floats(min_value=-10.0, max_value=10.0)) for _ in xs]
+    widths = [draw(st.floats(min_value=0.1, max_value=0.5)) for _ in range(count)]
+    layers = [draw(st.sampled_from(["F.Cu", "B.Cu"]))] * count
+    return list(zip(xs, ys)), widths, layers
+
+
+@given(monotone_routes())
+@example(([(0.0, 0.0), (1.0, 10.0), (2.0, -10.0)], [0.5, 0.5], ["F.Cu", "F.Cu"]))   # keskin dönüşler
+def test_path_length_is_the_sum_of_segments_in_both_directions(route):
+    pts, widths, layers = route
+    items = [point_pad("TP1", *pts[0], "/A", layers=f'"{layers[0]}"'),
+             point_pad("TP2", *pts[-1], "/A", layers=f'"{layers[0]}"')]
+    items += [segment("/A", *a, *b, width=w, layer=layer) for a, b, w, layer in zip(pts, pts[1:], widths, layers)]
+    expected = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
+    with tempfile.TemporaryDirectory() as folder:
+        path = Path(folder) / "route.kicad_pcb"
+        path.write_text(board_text(*items), encoding="utf-8")
+        board = read_kicad_board(path)
+    forward, backward = board.trace_path("TP1.1", "TP2.1"), board.trace_path("TP2.1", "TP1.1")
+    assert forward.length_mm == pytest.approx(expected, rel=1e-9, abs=1e-8)
+    assert backward.length_mm == pytest.approx(expected, rel=1e-9, abs=1e-8)
+    assert forward.warnings == [] and forward.via_count == 0
+
+
+# KiCad S-ifadesi: atom boşluk, parantez ve tırnak taşımaz; tırnaklı metinde \ ve " kaçışlıdır, satır sonu \n yazılır.
+atoms = st.text(st.characters(exclude_categories=("Z", "C"), exclude_characters='()"'), min_size=1, max_size=8)
+quoted = st.text(max_size=12)
+#: Tırnaklı yaprağın işareti: atom kontrol karakteri taşımaz, ``("q", [...])`` gibi bir liste düğümüyle karışmaz
+QUOTE = "\x00q"
+trees = st.recursive(st.one_of(atoms, quoted.map(lambda s: (QUOTE, s))),
+                     lambda children: st.tuples(atoms, st.lists(children, max_size=4)), max_leaves=25)
+
+
+def _write_sexpr(node):
+    if isinstance(node, str):
+        return node
+    if node[0] == QUOTE:
+        body = node[1].replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r")
+        return '"' + body.replace("\t", "\\t") + '"'
+    head, children = node
+    return "(" + " ".join([head, *(_write_sexpr(c) for c in children)]) + ")"
+
+
+def _expected_tree(node, skip=()):
+    if isinstance(node, str):
+        return node
+    if node[0] == QUOTE:
+        return node[1]
+    head, children = node
+    return [head, *(_expected_tree(c, skip) for c in children if not (isinstance(c, tuple) and c[0] in skip))]
+
+
+@given(st.tuples(atoms, st.lists(trees, max_size=5)))
+@example(("q", []))   # başı "q" olan liste (eski strateji onu tırnaklı yaprak sanıp çöküyordu)
+def test_parse_sexpr_round_trips_what_kicad_writes(tree):
+    text = _write_sexpr(tree)
+    parsed = parse_sexpr(text, skip=())
+    assert parsed == [_expected_tree(tree)]
+    # tırnaklı değerler tırnaklı kalır: (net 5) bir numara, (net "5") bir addır
+    quoted_values = []
+
+    def collect(node, out):
+        for child in node[1:]:
+            if isinstance(child, list):
+                collect(child, out)
+            else:
+                out.append((child, type(child).__name__))
+
+    collect(parsed[0], quoted_values)
+    expected_kinds = []
+
+    def kinds(node):
+        for child in node[1]:
+            if isinstance(child, str):
+                expected_kinds.append((child, "str"))
+            elif child[0] == QUOTE:
+                expected_kinds.append((child[1], "_Quoted"))
+            else:
+                kinds(child)
+
+    kinds(tree)
+    assert quoted_values == expected_kinds
+
+
+@given(st.tuples(atoms, st.lists(trees, max_size=5)), st.sampled_from(["fp_line", "uuid", "model"]))
+def test_parse_sexpr_drops_only_skipped_subtrees(tree, head):
+    skipped = (head, [(QUOTE, "x"), (head, ["1"]), "2"])   # iç içe atlanan alt ağaç da gider
+    root = (tree[0], [*tree[1], skipped, "son"])
+    parsed = parse_sexpr(_write_sexpr(root), skip=(head,))
+    expected = _expected_tree(root, skip=(head,))
+    assert parsed == [expected] and parsed[0][-1] == "son"

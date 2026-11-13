@@ -330,6 +330,24 @@ def test_injected_trace_has_exactly_its_dc_resistance_in_ltspice(adapter):
     assert res.measurements["vout"] == pytest.approx(1.0 / (1.0 + trace.r_dc), rel=1e-6)
 
 
+def test_board_path_has_exactly_the_hand_dc_resistance_in_ltspice(adapter):
+    """Karttan okunan /CHAIN yolu (tests/data/kicad10_paths.kicad_pcb, J1.1 -> TP1.1: 4 parça, 2 via) netliste eklenir.
+    Elle (ADI Bl.12 s.7; kartın katman yapısında bakır 0.035 mm): R = 1.724e-8 / 35e-6 x (5/0.25 + 6/0.5 + 8/0.5 +
+    6/0.25) = 35.4651 mOhm. 1 V -> yol -> 1 Ohm: DC'de V(out) = 1 / (1 + R). Via'lar ideal kısa devre (değer yok)."""
+    from pathlib import Path
+
+    from ltspice_llm import inject_board_path_into_netlist, read_kicad_board
+
+    board = read_kicad_board(Path(__file__).parent / "data" / "kicad10_paths.kicad_pcb")
+    model = board.trace_path("J1.1", "TP1.1").parasitics()
+    net = inject_board_path_into_netlist("* board path dc\nV1 in 0 1\nRl out 0 1\n.op\n.meas op vout FIND V(out)\n"
+                                         ".end\n", "in", "out", model)
+    res = adapter.run_netlist(net, circuit_name="it_board_path_dc", treat_as_text=True)
+    assert res.success, res.errors
+    r_hand = 1.724e-8 / 35e-6 * (5 / 0.25 + 6 / 0.5 + 8 / 0.5 + 6 / 0.25)
+    assert res.measurements["vout"] == pytest.approx(1.0 / (1.0 + r_hand), rel=1e-6)
+
+
 # ------------------------------------------------------------------------ takma anı (AN-88 seri RLC)
 def _hotplug_net(v, l_h, c_f, r, cb=None, rb=None, periods=3):
     """1 ns kenarlı basamak -> R -> L -> C (+ C_b + ESR). ``Rser=0``: LTspice bobin varsayılanı 1 mΩ (ADI

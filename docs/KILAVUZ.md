@@ -26,7 +26,7 @@ ltspice-llm'in ayrıntılı başvuru belgesi: özellikler, API örnekleri, perfo
    - `create_or_replace_circuit`, `modify_parameters`, `plot_transient_waveforms`, `plot_bode_diagram`, `get_circuit_netlist`, `list_circuits`, `quantize_parameters`, `diagnose_circuit_issue`, `optimize_parameter`, `search_ltspice_reference`.
    - Şemalar `get_ltspice_tool_schemas(format=...)` ile `generic`, `openai`, `anthropic` ve `gemini` biçimlerinde alınır. Biçimler sağlayıcı dokümantasyonuna göre üretilir, canlı API üzerinde otomatik test edilmez.
    - Araç argümanları sözlük veya JSON metni olabilir (OpenAI argümanları metin olarak gönderir).
-   - Genişletilmiş küme (`include_extended=True`) tasarım araçlarına ek olarak `compare_circuits` (iki devrenin netlist ve `.meas` farkı) ve `export_waveforms_csv` (dalga formlarını CSV'ye yazar) araçlarını içerir; ayrıntı aşağıda "LLM Ajanı Entegrasyonu" bölümünde.
+   - Genişletilmiş küme (`include_extended=True`) tasarım araçlarına ek olarak `compare_circuits` (iki devrenin netlist ve `.meas` farkı), `export_waveforms_csv` (dalga formlarını CSV'ye yazar) ve `read_board_trace` (KiCad kartından iz yolu ve parazitik modeli) araçlarını içerir; ayrıntı aşağıda "LLM Ajanı Entegrasyonu" bölümünde.
 
 5. **Standart Komponent Kuantalama (E-Series Snapping):**
    - Teorik değerleri (örn: $15.915\text{ k}\Omega, 1.414\text{ nF}$) **E6, E12, E24, E96** serilerine yuvarlar (nearest, floor, ceil) ve sapma analizini sunar.
@@ -76,6 +76,7 @@ ltspice-llm/
 │   ├── tools.py                  # LLM Tool / Function Calling arayüzleri ve şema biçimleri
 │   ├── quantizer.py              # E-serisi komponent kuantalama motoru
 │   ├── parasitics.py             # PCB izi, MLCC DC-bias, kablo endüktansı ve takma anı analizi (kaynaklı sabitler)
+│   ├── board.py                  # KiCad kart okuyucu: iki pad arasındaki iz yolu ve katman yapısı (salt okunur)
 │   ├── diagnostics.py            # SPICE hata ve yakınsama teşhis danışmanı (ADI sorun giderme sırası)
 │   ├── reference.py              # ADI LTspice AI Reference araması ve model kütüphanesi indeksi
 │   ├── report.py                 # Simülasyon raporu (HTML): sorular, dalga formları, bileşen etkileri, güvenilirlik
@@ -101,11 +102,15 @@ ltspice-llm/
 │   ├── 17_gemini_review_3.py              # üçüncü Gemini incelemesinin iddiaları, ölçülerek + rapor
 │   ├── 18_gemini_review_4.py              # dördüncü Gemini incelemesinin iddiaları, ölçülerek + rapor
 │   ├── 19_simulation_to_slides.py         # RC basamak yanıtı -> rapor, GIF ve .pptx (ajan skill'leri)
+│   ├── 20_kicad_board_checks.py           # kart okuyucuyu KiCad'in kendi hesabıyla karşılaştırır (KiCad ister)
+│   ├── 21_board_trace_to_simulation.py    # karttan okunan iz yolu LTspice'ta: DC düşüm, yük basamağı + rapor
+│   ├── kicad_oracle.py                    # KiCad'in Python'unda çalışır: test kartlarını kurar, KiCad'in hesabını kaydeder
 │   └── study_helpers.py                   # rapor yolu ve kaydı
 ├── docs/
 │   ├── KILAVUZ.md                         # bu belge: ayrıntılı kullanım kılavuzu
 │   ├── LESSONS_LEARNED_PERFORMANCE.md     # performans/kilitlenme çalışmasının dersleri ve kontrol listesi
 │   ├── LESSONS_LEARNED_LTSPICE_REFERENCE.md  # ADI LTspice AI Reference: doğrulanan/çürüyen iddialar, bulunan hatalar
+│   ├── LESSONS_LEARNED_KICAD.md           # kart okuyucunun KiCad'le karşılaştırması, KiCad'in Python'unun tuzakları
 │   ├── MISSION_BRIEF_TEMPLATE.md # Tasarım/doğrulama işi şablonu: .meas eşikleri, özerklik zarfı, kanıt
 │   └── references/               # App note / datasheet kataloğu ve indirici (PDF'ler git'e girmez)
 ├── scripts/
@@ -214,7 +219,7 @@ Claude ile eksiksiz döngü (model kimliği, `effort`, reddedilen istek için `f
 - Ajanın varsayılan sistem istemi Türkçedir; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` İngilizce çevirisini verir. Araç açıklamaları ve araç sonuçlarındaki mesajlar istemden bağımsız olarak Türkçedir.
 - Genişletilmiş araçlar için ajanı `include_extended=True` ile kurun ve API'ye `get_ltspice_tool_schemas("anthropic", include_extended=True)` verin.
 
-Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo, birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`, iki devreyi karşılaştıran `compare_circuits` ve dalga formlarını dosyaya yazan `export_waveforms_csv`.
+Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo, birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`, iki devreyi karşılaştıran `compare_circuits`, dalga formlarını dosyaya yazan `export_waveforms_csv` ve KiCad kartından iz yolu okuyan `read_board_trace`.
 
 ### İki devreyi karşılaştırma
 
@@ -252,6 +257,29 @@ export_waveforms_csv(run.raw_path, "rc_comma.csv", delimiter=";", decimal=",")  
 - Değerler yuvarlanmaz: her hücre, sayının kaydedildiği türde geri okunan en kısa yazımıdır (LTspice'ın varsayılan `.raw`'ında izler float32, zaman float64).
 - `.ac` izleri `re(V(out))` ve `im(V(out))` sütunlarına yazılır. Steplenmiş koşumda ilk sütun `step`'tir (LTspice logundaki gibi 1'den başlar).
 - `export_waveforms_csv` aracı dosyayı çalışma alanına `<circuit_name>.csv` olarak yazar ve yalnız dosya yolunu, satır sayısını ve sütun adlarını döndürür (veri modele gitmez); `delimiter` için `"tab"` da kabul eder. `remove_circuit` ve `cleanup_workspace` bu dosyayı da siler.
+
+### Karttan iz yolu okuma (KiCad)
+
+İki parça arasındaki bakır izin uzunluğu elle girilmez, KiCad kart dosyasından okunur. `read_kicad_board` dosyayı yalnız okur ve KiCad'in kurulu olmasını gerektirmez; `trace_path` iki pad arasındaki en kısa iz yolunu bulur; `parasitics` her parçayı kartın katman yapısındaki dielektrik kalınlığı, bağıl geçirgenlik ve bakır kalınlığıyla R/L/C'ye çevirir. `read_board_trace` aracı aynı işi modele yaptırır (genişletilmiş küme).
+
+```python
+from ltspice_llm import inject_board_path_into_netlist, read_kicad_board
+
+board = read_kicad_board("kart.kicad_pcb")
+path = board.trace_path("U3.2", "C5.1")  # aynı netteki iki pad, "REF.PAD" biçiminde
+model = path.parasitics()                # H, er ve bakır kalınlığı kartın katman yapısından
+netlist = inject_board_path_into_netlist(netlist, "vreg", "vdd", model)
+# path.to_dict(): parça parça katman, genişlik, uzunluk, izin altındaki dönüş düzleminin örtme oranı, katman geçişleri
+# board.summary(): dosya adı, SHA-256, revizyon, katman yapısı (rapora girer)
+```
+
+- Yol, iki pad arasındaki en kısa iz yoludur; netin toplam iz uzunluğu değildir.
+- Bağlantı yalnız bakır dökümden geçiyorsa, yol iç katmandaysa (stripline) ya da bağlantı yönlendirilmemişse `BoardPathError` verilir: uzunluk uydurulmaz.
+- Microstrip denklemi izin altında kesintisiz bir dönüş düzlemi varsayar. Her parçanın `plane_coverage` değeri, komşu bakır katmandaki dolu dökümün parçanın ne kadarını örttüğünü söyler.
+- Via'lar sayılır ama modellenmez (ideal kısa devre); değerleri `parasitics(via_inductance_h=..., via_resistance_ohm=...)` ile girdi olarak verilebilir.
+- Araç kartı çalışma alanında arar; mutlak yol ve `..` yalnız `allow_file_access=True` ile okunur. Okunamayan dosyanın içeriği hata iletisine yansıtılmaz.
+- Okuyucu KiCad 10.0.3'ün kendi hesabıyla karşılaştırıldı (`examples/20_kicad_board_checks.py`): iz uzunlukları, pad konumları ve bağlı pad kümeleri aynı çıktı. Ölçümler ve KiCad'in Python'unun tuzakları: `docs/LESSONS_LEARNED_KICAD.md`.
+- Uçtan uca örnek: `examples/21_board_trace_to_simulation.py` yolu bir besleme devresine ekler, LTspice'ta DC düşümü ve yük basamağındaki çökmeyi ideal telle karşılaştırarak ölçer ve rapor yazar; kendi kartınız için `--kart` ve `--yol` seçenekleri var.
 
 ---
 

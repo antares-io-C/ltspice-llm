@@ -50,6 +50,13 @@ LLM ya da Python ──(devre)──► ltspice-llm ──► LTspice (arka plan
   hangi netlist değişkenlerinin değiştiğini ve `.meas` sonuçlarının önce/sonra farkını verir; `export_waveforms_csv`
   `.raw` izlerini Excel, MATLAB ya da pandas için CSV'ye yazar. İkisi de genişletilmiş araç kümesindedir
   (`include_extended=True`). [docs/KILAVUZ.md](docs/KILAVUZ.md)
+- **İz uzunluklarını KiCad kartından okuyun.** `read_kicad_board` bir `.kicad_pcb` dosyasını KiCad olmadan okur, iki
+  pad arasındaki en kısa iz yolunu bulur ve netlist için R/L/C modeline çevirir; dielektrik ve bakır kalınlığı kartın
+  katman yapısından alınır. `read_board_trace` aracı aynı işi modele yaptırır. Okuyucu kart dosyasını yalnızca okur
+  ve KiCad'in kendi hesabıyla karşılaştırıldı. Uçtan uca örnek yolu bir besleme devresine ekler, LTspice'ta DC
+  düşümünü ve yük basamağındaki çökmeyi ölçer.
+  [examples/21_board_trace_to_simulation.py](examples/21_board_trace_to_simulation.py),
+  [docs/KILAVUZ.md](docs/KILAVUZ.md)
 - **Sonuçları sunuma ve hareketli GIF'e dökün.** İki ajan skill'i simülasyon sonuçlarından düzenlenebilir bir `.pptx`
   sunum ve döngülü dalga formu GIF'leri üretir; uçtan uca örnek LTspice'ı koşar, raporu, iki GIF'i ve sunumu üretir.
   [examples/19_simulation_to_slides.py](examples/19_simulation_to_slides.py),

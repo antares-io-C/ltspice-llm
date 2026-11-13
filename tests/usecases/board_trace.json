@@ -1,0 +1,84 @@
+{
+  "use_case": "Karttan iz yolu: KiCad kart dosyasındaki iki pad arasındaki iz yolunun parazitik modeli (read_board_trace)",
+  "source": [
+    "GEMINI.md 'Simülasyon doğrulama kuralları': basılan kartın bağlantılarını ve iz uzunluklarını kart dosyasından oku, dosyanın özetini rapora yaz",
+    "ltspice_llm/tools.py read_board_trace açıklaması ve _board_file belgesi",
+    "ltspice_llm/board.py modül belgesi: iki pad arasındaki en kısa iz yolu; döküm ve iç katman sınırları; dosya yalnızca okunur",
+    "ltspice_llm/tools.py handle_tool_call: allow_file_access False iken çalışma alanı dışı okunamaz"
+  ],
+  "actions": [
+    {"id": "K1", "message": "Kart yolu çalışma alanında çözülür; dışarıyı gösteren yol okunmaz", "proof": "boundary",
+     "source": "handle_tool_call allow_file_access belgesi; tools._board_file belgesi"},
+    {"id": "K2", "message": "Kart dosyası salt okunur ayrıştırılır", "proof": "trace", "symbol": "board.read_kicad_board",
+     "source": "board.py modül belgesi: dosya yalnızca okunur, KiCad'in kurulu olması gerekmez"},
+    {"id": "K3", "message": "İki pad arasındaki en kısa iz yolu bulunur", "proof": "trace",
+     "symbol": "board.KicadBoard.trace_path",
+     "source": "board.py modül belgesi: yol, iki pad arasındaki en kısa iz yoludur, netin toplam iz uzunluğu değildir"},
+    {"id": "K4", "message": "Her parça katman yapısından okunan H, er ve bakır kalınlığıyla R/L/C'ye çevrilir",
+     "proof": "trace", "symbol": "parasitics.calculate_trace_parasitics",
+     "source": "BoardPath.parasitics belgesi; read_board_trace açıklaması (IPC-2141 microstrip, ADI MT-094)"},
+    {"id": "K5", "message": "Yol tek alt devre olarak yazılır (in out ref)", "proof": "trace",
+     "symbol": "board.PathParasitics.to_spice_subckt",
+     "source": "read_board_trace açıklaması: 'spice_subcircuit' '.subckt <ad> in out ref' biçimindedir"},
+    {"id": "K6", "message": "Yalnız dökümle bağlı padler için uzunluk uydurulmaz, model kurulmaz", "proof": "boundary",
+     "source": "board.py modül belgesi: bağlantı bakır dökümden geçiyorsa iz modeli uygulanmaz, uzunluk uydurulmaz"},
+    {"id": "K7", "message": "Okunamayan dosyanın içeriği hata iletisine yansıtılmaz", "proof": "boundary",
+     "source": "tools._tool_board_trace: ayrıştırıcının iletisi dosyadan metin taşır, modele yansıtılmaz; CHANGELOG 'Yayımlanmadı'"}
+  ],
+  "scenarios": [
+    {
+      "test": "tests/test_board.py::test_tool_reads_the_chain_path_from_the_board_file",
+      "flow": "Basic",
+      "actions": ["K2", "K3", "K4", "K5"],
+      "sequence": [
+        "tools.handle_tool_call",
+        "board.read_kicad_board",
+        "board.KicadBoard.trace_path",
+        "parasitics.calculate_trace_parasitics",
+        "board.PathParasitics.to_spice_subckt"
+      ],
+      "note": "Kart tests/data/kicad10_paths.kicad_pcb (KiCad 10.0.3'ün kaydettiği sentetik kart); beklenen değerler elle hesap."
+    },
+    {
+      "test": "tests/test_board.py::test_tool_refuses_a_board_outside_the_workspace_by_default",
+      "flow": "Error",
+      "actions": ["K1"],
+      "sequence": ["tools.handle_tool_call"],
+      "forbidden": ["board.read_kicad_board"],
+      "evidence": {
+        "K1": "assert res[\"status\"] == \"ERROR\" and res[\"message\"].startswith(\"Kart dosyası çalışma alanının içinde olmalı\")"
+      }
+    },
+    {
+      "test": "tests/test_board.py::test_tool_refuses_a_link_that_leaves_the_workspace",
+      "flow": "Error",
+      "actions": ["K1"],
+      "sequence": ["tools.handle_tool_call"],
+      "forbidden": ["board.read_kicad_board"],
+      "evidence": {
+        "K1": "assert res[\"status\"] == \"ERROR\" and res[\"message\"].startswith(\"Kart dosyası çalışma alanının içinde olmalı\")"
+      },
+      "note": "Yol metni çalışma alanının içinde; oradaki dizin bağlantısı (Windows'ta junction) dışarıyı gösteriyor."
+    },
+    {
+      "test": "tests/test_board.py::test_tool_does_not_echo_the_contents_of_an_unreadable_file",
+      "flow": "Error",
+      "actions": ["K2", "K7"],
+      "sequence": ["tools.handle_tool_call", "board.read_kicad_board"],
+      "forbidden": ["board.KicadBoard.trace_path", "parasitics.calculate_trace_parasitics"],
+      "evidence": {
+        "K7": "assert res == {\"status\": \"ERROR\", \"message\": UNREADABLE}"
+      }
+    },
+    {
+      "test": "tests/test_board.py::test_tool_does_not_invent_a_length_for_a_pour_connection",
+      "flow": "Error",
+      "actions": ["K2", "K3", "K6"],
+      "sequence": ["tools.handle_tool_call", "board.read_kicad_board", "board.KicadBoard.trace_path"],
+      "forbidden": ["parasitics.calculate_trace_parasitics", "board.PathParasitics.to_spice_subckt"],
+      "evidence": {
+        "K6": "assert res[\"status\"] == \"ERROR\" and res[\"message\"].count(\"Döküm bir iz değildir\") == 1 and \"spice_subcircuit\" not in res"
+      }
+    }
+  ]
+}

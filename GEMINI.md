@@ -73,6 +73,10 @@ Bu kurallar, ölçüldüğünde çoğu yanlış çıkan bir donanım incelemesin
   fotoğraftan okunan bir kart basılan karttan farklı çıktı. Modülün takılma yönünü gerçek modülle, yazılımın pin
   haritasını kartla karşılaştır: bir kart modülün pin 1'ini yanlış uca koymuştu, yonga seçme (CS) pini kartta ve
   yazılımda farklıydı.
+- İz yolunu `.kicad_pcb`'den `ltspice_llm.board.read_kicad_board(...).trace_path("U3.2", "C5.1")` ile oku, elle girme.
+  KiCad'in Python'unu çalıştıracaksan: kartın geçici kopyasında (`LoadBoard` kartın yanına proje dosyası yazar),
+  `wx.DisableAsserts()` ve `wx.Log.SetActiveTarget(wx.LogStderr())` ile (yoksa kullanıcının ekranında cevap bekleyen
+  pencere açılır), `timeout`'la. Ayrıntı ve ölçümler: `docs/LESSONS_LEARNED_KICAD.md`.
 - Önce/sonra karşılaştırmasında aynı düğümü ölç ve bir seferde tek değişken değiştir.
 - Son değerin simülasyon penceresi içinde oturduğunu kontrol et.
 - `.tran` izinin ortalamasını ya da RMS'ini örneklerin aritmetik ortalamasıyla alma: LTspice'ın adımı değişken

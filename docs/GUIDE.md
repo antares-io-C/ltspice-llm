@@ -26,7 +26,7 @@ Detailed reference for ltspice-llm: features, API examples, performance measurem
    - `create_or_replace_circuit`, `modify_parameters`, `plot_transient_waveforms`, `plot_bode_diagram`, `get_circuit_netlist`, `list_circuits`, `quantize_parameters`, `diagnose_circuit_issue`, `optimize_parameter`, `search_ltspice_reference`.
    - Schemas are obtained in `generic`, `openai`, `anthropic` and `gemini` formats with `get_ltspice_tool_schemas(format=...)`. The formats are produced according to the provider documentation and are not tested automatically against the live API.
    - Tool arguments can be a dictionary or JSON text (OpenAI sends arguments as text).
-   - The extended set (`include_extended=True`) adds, besides the design tools, `compare_circuits` (netlist and `.meas` difference of two circuits) and `export_waveforms_csv` (writes waveforms to CSV); details are in "LLM Agent Integration" below.
+   - The extended set (`include_extended=True`) adds, besides the design tools, `compare_circuits` (netlist and `.meas` difference of two circuits), `export_waveforms_csv` (writes waveforms to CSV) and `read_board_trace` (trace path and parasitic model from a KiCad board); details are in "LLM Agent Integration" below.
 
 5. **Standard Component Quantization (E-Series Snapping):**
    - Rounds theoretical values (e.g.: $15.915\text{ k}\Omega, 1.414\text{ nF}$) to the **E6, E12, E24, E96** series (nearest, floor, ceil) and provides deviation analysis.
@@ -76,6 +76,7 @@ ltspice-llm/
 │   ├── tools.py                  # LLM Tool / Function Calling interfaces and schema formats
 │   ├── quantizer.py              # E-series component quantization engine
 │   ├── parasitics.py             # PCB trace, MLCC DC-bias, cable inductance and hot-plug analysis (sourced constants)
+│   ├── board.py                  # KiCad board reader: trace path between two pads and stackup (read-only)
 │   ├── diagnostics.py            # SPICE error and convergence diagnosis advisor (ADI troubleshooting order)
 │   ├── reference.py              # ADI LTspice AI Reference search and model library index
 │   ├── report.py                 # Simulation report (HTML): questions, waveforms, component effects, reliability
@@ -101,11 +102,15 @@ ltspice-llm/
 │   ├── 17_gemini_review_3.py              # claims of the third Gemini review, measured + report
 │   ├── 18_gemini_review_4.py              # claims of the fourth Gemini review, measured + report
 │   ├── 19_simulation_to_slides.py         # RC step response -> report, GIF and .pptx (agent skills)
+│   ├── 20_kicad_board_checks.py           # compares the board reader with KiCad's own computation (needs KiCad)
+│   ├── 21_board_trace_to_simulation.py    # board trace path in LTspice: DC drop, load step + report
+│   ├── kicad_oracle.py                    # runs in KiCad's Python: builds the test boards, records KiCad's computation
 │   └── study_helpers.py                   # report path and registration
 ├── docs/
 │   ├── KILAVUZ.md                         # this document: detailed user guide
 │   ├── LESSONS_LEARNED_PERFORMANCE.md     # lessons and checklist from the performance/livelock work
 │   ├── LESSONS_LEARNED_LTSPICE_REFERENCE.md  # ADI LTspice AI Reference: confirmed/refuted claims, bugs found
+│   ├── LESSONS_LEARNED_KICAD.md           # comparison of the board reader with KiCad, pitfalls of KiCad's Python
 │   ├── MISSION_BRIEF_TEMPLATE.md # Template for a design/verification job: .meas thresholds, autonomy envelope, evidence
 │   └── references/               # App note / datasheet catalog and downloader (PDFs are not committed to git)
 ├── scripts/
@@ -214,7 +219,7 @@ For a complete loop with Claude (model ID, `effort`, `fallbacks` for a refused r
 - The agent's default system prompt is Turkish; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` gives its English translation. Tool descriptions and the messages in tool results are Turkish regardless of the prompt.
 - For the extended tools, create the agent with `include_extended=True` and give the API `get_ltspice_tool_schemas("anthropic", include_extended=True)`.
 
-Extended tools (`include_extended=True`): schematic drawing, trace parasitics, hot-plug, SOA/derating, Monte Carlo, `optimize_parameters`, which tunes several parameters toward several `.meas` targets with Nelder-Mead, `compare_circuits`, which compares two circuits, and `export_waveforms_csv`, which writes waveforms to a file.
+Extended tools (`include_extended=True`): schematic drawing, trace parasitics, hot-plug, SOA/derating, Monte Carlo, `optimize_parameters`, which tunes several parameters toward several `.meas` targets with Nelder-Mead, `compare_circuits`, which compares two circuits, `export_waveforms_csv`, which writes waveforms to a file, and `read_board_trace`, which reads a trace path from a KiCad board.
 
 ### Comparing two circuits
 
@@ -252,6 +257,29 @@ export_waveforms_csv(run.raw_path, "rc_comma.csv", delimiter=";", decimal=",")  
 - Values are not rounded: each cell is the shortest text that reads back as the same number in the type it was stored in (in LTspice's default `.raw`, traces are float32 and time is float64).
 - `.ac` traces are written to the columns `re(V(out))` and `im(V(out))`. In a stepped run the first column is `step` (it starts at 1, as in the LTspice log).
 - The `export_waveforms_csv` tool writes the file into the workspace as `<circuit_name>.csv` and returns only the file path, the row count and the column names (the data does not go to the model); it also accepts `"tab"` for `delimiter`. `remove_circuit` and `cleanup_workspace` delete this file too.
+
+### Reading a trace path from a KiCad board
+
+The length of the copper trace between two parts is not typed in by hand; it is read from the KiCad board file. `read_kicad_board` only reads the file and does not need KiCad installed; `trace_path` finds the shortest trace path between two pads; `parasitics` turns each piece into R/L/C with the dielectric thickness, relative permittivity and copper thickness from the board's stackup. The `read_board_trace` tool lets a model do the same (extended set).
+
+```python
+from ltspice_llm import inject_board_path_into_netlist, read_kicad_board
+
+board = read_kicad_board("kart.kicad_pcb")
+path = board.trace_path("U3.2", "C5.1")  # two pads on the same net, as "REF.PAD"
+model = path.parasitics()                # H, er and copper thickness from the board's stackup
+netlist = inject_board_path_into_netlist(netlist, "vreg", "vdd", model)
+# path.to_dict(): per piece layer, width, length, coverage by the return plane under the trace, layer changes
+# board.summary(): file name, SHA-256, revision, stackup (goes into the report)
+```
+
+- The path is the shortest trace path between the two pads, not the total track length of the net.
+- If the connection runs only through a copper pour, the path is on an inner layer (stripline) or the connection is not routed, `BoardPathError` is raised: no length is made up.
+- The microstrip equation assumes an unbroken return plane under the trace. Each piece's `plane_coverage` says how much of the piece the filled pour on the neighbouring copper layer covers.
+- Vias are counted but not modelled (ideal short); their values can be given as inputs with `parasitics(via_inductance_h=..., via_resistance_ohm=...)`.
+- The tool looks for the board in the workspace; an absolute path or `..` is read only with `allow_file_access=True`. The contents of a file that cannot be read are not echoed in the error message.
+- The reader was compared with KiCad 10.0.3's own computation (`examples/20_kicad_board_checks.py`): track lengths, pad positions and connected pad groups came out the same. Measurements and the pitfalls of KiCad's Python: `docs/LESSONS_LEARNED_KICAD.md`.
+- End-to-end example: `examples/21_board_trace_to_simulation.py` adds the path to a supply circuit, measures in LTspice the DC drop and the dip at a load step against an ideal wire, and writes a report; `--kart` and `--yol` run it on your own board.
 
 ---
 

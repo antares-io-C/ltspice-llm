@@ -1,5 +1,31 @@
 # Değişiklik Günlüğü
 
+## Yayımlanmadı
+
+Yeni (2026-11-13):
+
+- KiCad kart okuyucu (`ltspice_llm.board`): iz uzunluğu elle girilmez, `.kicad_pcb` dosyasından okunur.
+  `read_kicad_board` dosyayı yalnız okur (KiCad 6 ve sonrası; KiCad kurulu olmasa da çalışır),
+  `KicadBoard.trace_path` iki pad arasındaki en kısa iz yolunu bulur, `BoardPath.parasitics` her parçayı kartın katman
+  yapısındaki dielektrik kalınlığı, bağıl geçirgenlik ve bakır kalınlığıyla `calculate_trace_parasitics`'e verir,
+  `inject_board_path_into_netlist` yolu netliste ekler. Bağlantı yalnız bakır dökümden geçiyorsa, yol iç katmandaysa
+  (stripline) ya da yönlendirilmemişse `BoardPathError` verilir: uzunluk uydurulmaz. İzin altındaki dönüş düzleminin
+  örtme oranı, paralel yol ve döküm uyarı olarak döner. Via'lar sayılır; değerleri girdidir.
+- `read_board_trace` aracı (genişletilmiş küme; varsayılan 10 araç değişmedi). Kart yolu çalışma alanında olmalı:
+  `allow_file_access` olmadan mutlak yol, `..`, `~`, `%VAR%` ve dışarıyı gösteren bağlantı reddedilir. Yalnız
+  `.kicad_pcb` okunur; okunamayan dosyanın içeriği hata iletisine yansıtılmaz.
+- Uçtan uca örnek `examples/21_board_trace_to_simulation.py`: karttan okunan yol bir besleme devresine eklenir.
+  LTspice'ta DC düşüm I × R ile, yük basamağındaki çökme ideal telle karşılaştırılır; Gear denetimiyle rapor yazılır.
+  Kendi kart için `--kart <dosya> --yol <REF.PAD> <REF.PAD>`. LTspice entegrasyon testi: eklenen yolun DC direnci
+  elle hesapla aynı.
+- Doğrulama: okuyucu KiCad 10.0.3'ün kendi `pcbnew` hesabıyla karşılaştırıldı (`examples/20_kicad_board_checks.py`;
+  KiCad tarafı `examples/kicad_oracle.py`). İki sentetik test kartı ve KiCad'in demo kartlarından 13'ünün 12'si aynı
+  çıktı: iz uzunlukları, pad konumları, bağlı pad kümeleri, dökümün örttüğü noktalar. Kalan demo bakır katmana çizilmiş
+  netli bir şekil içeriyor; okuyucu çizimi bakır saymaz, uyarı verir. Sentetik kartlar ve KiCad tanıkları
+  `tests/data/kicad10_*`, testler `tests/test_board.py`, use case `tests/usecases/board_trace.json`; ölçümler ve KiCad'in
+  Python'unun tuzakları (kartın yanına proje dosyası yazması, ekranda yanıt bekleyen uyarı pencereleri)
+  `docs/LESSONS_LEARNED_KICAD.md`.
+
 ## 1.5.0 — 2026-11-11
 
 Yeni (2026-11-11):

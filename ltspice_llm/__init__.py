@@ -22,6 +22,14 @@ from .report import SimulationReport
 from .visualizer import WaveformVisualizer
 from .tools import convert_tool_schemas, get_ltspice_tool_schemas, handle_tool_call
 from .agent import CircuitOptimizer, OptimizationResult
+from .board import (
+    BoardPath,
+    BoardPathError,
+    KicadBoard,
+    PathParasitics,
+    inject_board_path_into_netlist,
+    read_kicad_board,
+)
 from .compare import compare_measurements, compare_netlists
 from .export import export_waveforms_csv
 from .circuit_agent import AutonomousCircuitAgent
@@ -93,6 +101,12 @@ __all__ = [
     "compare_netlists",
     "compare_measurements",
     "export_waveforms_csv",
+    "read_kicad_board",
+    "KicadBoard",
+    "BoardPath",
+    "BoardPathError",
+    "PathParasitics",
+    "inject_board_path_into_netlist",
     "AutonomousCircuitAgent",
     "CIRCUIT_DESIGNER_SYSTEM_PROMPT",
     "CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN",
