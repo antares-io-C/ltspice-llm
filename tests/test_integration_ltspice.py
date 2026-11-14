@@ -542,7 +542,9 @@ def test_verify_specs_with_a_numerical_check_on_a_real_run(adapter):
     specs = {"t50": {"min": 0.6e-3, "max": 0.8e-3, "source": "elle: RC·ln 2"}}
     res = handle_tool_call("verify_specs", {"circuit_name": "it_spec", "specs": specs, "numerical_check": True},
                            adapter=adapter)
-    assert res["status"] == "SUCCESS" and res["verdict"] == "PASS" and res["warnings"] == [], res
+    assert res["status"] == "SUCCESS" and res["verdict"] == "PASS", res
+    # Kaynak verildi; tek uyarı, tek koşumun köşe kapsamadığı
+    assert len(res["warnings"]) == 1 and res["warnings"][0].count("köşe yok") == 1, res["warnings"]
     (row,) = res["results"]
     assert row["worst_value"] == pytest.approx(1e-3 * math.log(2), rel=5e-3)
     runs = res["numerical_check"]["runs"]

@@ -62,7 +62,9 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
   measurement, with the margin to the nearest limit. Every step of a stepped run is checked, and a measurement
   LTspice could not compute is never a pass. Each limit can carry an uncertainty, used as a guard band
   (JCGM 106), and a source; `numerical_check` reruns the circuit with tighter solver settings and adds the
-  change to the guard band. [docs/GUIDE.md](docs/GUIDE.md#checking-results-against-specs)
+  change to the guard band. A stepped corner run names the `.step` values of the worst step, and `model_specs`
+  checks the model against its datasheet first: if it fails, a design pass becomes UNVERIFIED.
+  [docs/GUIDE.md](docs/GUIDE.md#checking-results-against-specs)
 - **Read trace lengths from a KiCad board.** `read_kicad_board` reads a `.kicad_pcb` file without KiCad, finds the
   shortest trace path between two pads and turns it into an R/L/C model for the netlist, with the dielectric and
   copper thickness taken from the board's stackup; the `read_board_trace` tool lets a model do the same. The reader

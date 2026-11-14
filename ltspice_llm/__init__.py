@@ -32,7 +32,7 @@ from .board import (
 )
 from .compare import compare_measurements, compare_netlists
 from .export import export_waveforms_csv
-from .specs import check_specs
+from .specs import check_specs, require_model
 from .stability import raw_loop_margins, stability_margins
 from .circuit_agent import AutonomousCircuitAgent
 from .system_prompts import CIRCUIT_DESIGNER_SYSTEM_PROMPT, CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN
@@ -69,7 +69,7 @@ from .parasitics import (
     mlcc_dc_bias_derating,
 )
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 __all__ = [
     "LTSpiceAdapter",
     "SimulationResult",
@@ -106,6 +106,7 @@ __all__ = [
     "stability_margins",
     "raw_loop_margins",
     "check_specs",
+    "require_model",
     "read_kicad_board",
     "KicadBoard",
     "BoardPath",

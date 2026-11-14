@@ -142,10 +142,29 @@ def check_specs(
                 row["reason"] = (f"sonuç belirsizlik bandında: pay {margin:.6g}, belirsizlik {u:.6g}; ne kabul ne ret "
                                  "(JCGM 106:2012 8.3.2 korumalı kabul, 8.3.3 korumalı ret)")
         results.append(row)
+    return {**_summary(results), "steps": len(tables), "warnings": warnings, "results": results}
+
+
+def _summary(results: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     counts = {status: sum(row["status"] == status for row in results) for status in STATUSES}
     verdict = "FAIL" if counts["FAIL"] else "UNVERIFIED" if counts["UNVERIFIED"] else "PASS"
-    return {"verdict": verdict, "passed": counts["PASS"], "failed": counts["FAIL"],
-            "unverified": counts["UNVERIFIED"], "steps": len(tables), "warnings": warnings, "results": results}
+    return {"verdict": verdict, "passed": counts["PASS"], "failed": counts["FAIL"], "unverified": counts["UNVERIFIED"]}
+
+
+def require_model(report: Mapping[str, Any], model: Mapping[str, Any]) -> Dict[str, Any]:
+    """Tasarım kararını model doğrulamasına bağlar: önce modelin kendisi doğrulanır.
+
+    ``model``, modelin kendi datasheet değerleri için bir `check_specs` raporudur (op-amp'ın GBW'si, regülatörün
+    dropout'u). Kararı PASS değilse tasarımın PASS satırları UNVERIFIED olur, çünkü karar doğrulanmamış bir modele
+    dayanır. FAIL satırları kalır: yanlış kabul doğurmazlar, ama nedenleri model de olabilir.
+    """
+    if model["verdict"] == "PASS":
+        return dict(report)
+    names = ", ".join(f"{row['name']} {row['status']}" for row in model["results"] if row["status"] != "PASS")
+    reason = f"model doğrulanmadı ({names}): karar doğrulanmamış bir modele dayanır"
+    results = [{**row, "status": "UNVERIFIED", "reason": reason} if row["status"] == "PASS" else dict(row)
+               for row in report["results"]]
+    return {**report, **_summary(results), "results": results}
 
 
 def measurement_steps(parsed: Any) -> List[Dict[str, Any]]:

@@ -1,5 +1,5 @@
 """
-docs/GUIDE.md, docs/KILAVUZ.md'nin İngilizce çevirisidir (CHANGELOG "Yayımlanmadı"). İki belgenin yapısı aynı kalmalı:
+docs/GUIDE.md, docs/KILAVUZ.md'nin İngilizce çevirisidir (CHANGELOG 1.5.0). İki belgenin yapısı aynı kalmalı:
 biri değişip öbürü unutulursa okur eski bilgiyi görür. Kod bloklarında yalnız yorum metni çevrilir, kod çevrilmez.
 """
 

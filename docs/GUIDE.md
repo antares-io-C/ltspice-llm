@@ -300,6 +300,8 @@ report = check_specs([run.measurements], specs)
 - `uncertainty` (in the unit of the measurement) is a guard band on both sides of each limit, following JCGM 106:2012 (8.3.2 guarded acceptance, 8.3.3 guarded rejection; local copy in `docs/references`, `jcgm-106-2012`): a result closer to the limit than the uncertainty is neither accepted nor rejected but `UNVERIFIED`. Without an uncertainty the decision is the plain comparison.
 - `source` says where the limit comes from (requirement, datasheet page); a spec without one is listed in `warnings`.
 - With `numerical_check` the tool runs the circuit twice more, with `reltol=1e-4` and with Gear, compression off (`plotwinsize=0`), and adds the largest change of each measurement to its guard band. `reltol` is not an accuracy guarantee, so the effect of the solver settings is measured, not assumed. If a rerun fails, or Gear does not show in its log, the spec cannot be verified.
+- Corners: one run says nothing about the tolerance, temperature and supply corners, so the tool warns when only a single run was checked (unless a spec already failed). Run the corners with `.step`, or with `simulate_monte_carlo`. Each result then names the `.step` values of its worst step in `worst_params`, read from the log.
+- Validate the model first. `model_specs` takes limits in the same format for the model itself, checked against its datasheet, such as an op-amp's GBW or a regulator's dropout. They are measured in `model_circuit` (by default the same circuit). If they do not all pass, the design's `PASS` results become `UNVERIFIED`, because they rest on a model nobody checked; a `FAIL` stays. `require_model(report, model_report)` does the same in code.
 
 ### Reading a trace path from a KiCad board
 

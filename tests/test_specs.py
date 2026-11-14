@@ -5,6 +5,7 @@ Beklenen değerler elle hesaptır (pay = en yakın sınıra uzaklık; sınır i�
 loglarından gelir (tests/data/ref26_*.log.txt; satırlar testlerin yanında).
 """
 
+import copy
 import shutil
 import sys
 from pathlib import Path
@@ -13,7 +14,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from ltspice_llm import LTSpiceAdapter, check_specs
+from ltspice_llm import LTSpiceAdapter, check_specs, require_model
 from ltspice_llm.adapter import strip_auto_directives
 from ltspice_llm.specs import numerical_spread
 from ltspice_llm.tools import handle_tool_call
@@ -176,6 +177,9 @@ def test_tool_marks_a_measurement_ltspice_could_not_compute(adapter):
     ({"circuit_name": "yok", "specs": {"v": {"max": 1}}}, "logu bulunamadı"),
     ({"circuit_name": "rc", "specs": {"v_max": {"min": 2, "max": 1}}}, "max'tan"),
     ({"circuit_name": "rc"}, "en az bir spec"),
+    ({"circuit_name": "rc", "specs": {"v_max": {"max": 4}}, "model_circuit": "yok", "model_specs": {"v": {"max": 1}}},
+     "Model doğrulaması yapılamadı"),
+    ({"circuit_name": "rc", "specs": {"v_max": {"max": 4}}, "model_specs": {"v": {"min": 2, "max": 1}}}, "model_specs:"),
 ])
 def test_tool_errors(adapter, args, fragment):
     _log(adapter, "rc", "ref26_flow_rc")
@@ -280,6 +284,87 @@ def test_tool_numerical_check_needs_the_netlist(adapter):
     assert on["status"] == "ERROR" and on["message"].count("netlisti bulunamadı") == 1
 
 
+# ------------------------------------------------------------------ köşeler ve önce model
+def test_an_unvalidated_model_withholds_a_design_pass():
+    """Önce modeli doğrula: model spec'i geçmezse tasarımın PASS'ı doğrulanmamış modele dayanır, UNVERIFIED olur; FAIL
+    kalır (yanlış kabul doğurmaz). Elle: gbw 0.5e6 < 0.9Meg -> FAIL, i_bias 1n <= 2n -> PASS; v_out 3,3 sınır
+    içinde; i_q 2 mA > 1 mA; t_rise adım tablosunda yok (kendi nedeniyle UNVERIFIED)."""
+    design = check_specs([{"v_out": 3.3, "i_q": 2e-3}],
+                         {"v_out": {"min": 3.2, "max": 3.4}, "i_q": {"max": 1e-3}, "t_rise": {"max": 1e-3}})
+    model = check_specs([{"gbw": 0.5e6, "i_bias": 1e-9}], {"gbw": {"min": "0.9Meg", "source": "datasheet"},
+                                                          "i_bias": {"max": "2n", "source": "datasheet"}})
+    before = copy.deepcopy(design)
+    gated = require_model(design, model)
+    assert design == before                                     # girdi raporu yerinde değişmez
+    v_out, i_q, t_rise = gated["results"]
+    assert (v_out["status"], i_q["status"], t_rise["status"]) == ("UNVERIFIED", "FAIL", "UNVERIFIED")
+    # Neden yalnız geçmeyen model spec'ini adlandırır; doğrulanamayan satır kendi nedenini korur
+    assert v_out["reason"].count("gbw FAIL") == 1 and v_out["reason"].count("i_bias") == 0
+    assert t_rise["reason"].count("ölçüm logda yok") == 1 and t_rise["reason"].count("model doğrulanmadı") == 0
+    assert (gated["verdict"], gated["passed"], gated["failed"], gated["unverified"]) == ("FAIL", 0, 1, 2)
+    # Tasarımda FAIL yoksa karar UNVERIFIED olur; model PASS ise aynı rapor döner
+    alone = check_specs([{"v_out": 3.3}], {"v_out": {"min": 3.2, "max": 3.4}})
+    snapshot = copy.deepcopy(alone)
+    assert require_model(alone, model)["verdict"] == "UNVERIFIED" and alone == snapshot
+    good = check_specs([{"gbw": 1e6}], {"gbw": {"min": "0.9Meg", "source": "datasheet"}})
+    assert require_model(alone, good) == snapshot and snapshot["verdict"] == "PASS"
+
+
+def test_tool_validates_the_model_first(adapter):
+    """Tasarım ref26_flow_rc (v_max 3.58834481239, vr_max 4.99999749785). Model test devresi ref26_cmp_meas_fail:
+    'Measurement "v_never" FAIL'ed'. Model doğrulanamayınca tasarımın PASS'ı UNVERIFIED olur."""
+    _log(adapter, "rc", "ref26_flow_rc")
+    _log(adapter, "bench", "ref26_cmp_meas_fail")
+    args = {"circuit_name": "rc", "specs": {"v_max": {"max": 4.0, "source": "test"}}}
+    bad = handle_tool_call("verify_specs", {**args, "model_circuit": "bench",
+                                            "model_specs": {"v_never": {"max": 1.0, "source": "test"}}}, adapter=adapter)
+    (row,) = bad["results"]
+    assert (bad["status"], bad["verdict"], row["status"]) == ("SUCCESS", "UNVERIFIED", "UNVERIFIED")
+    assert row["reason"].count("v_never UNVERIFIED") == 1
+    model = bad["model_validation"]
+    assert (model["circuit"], model["verdict"]) == ("bench", "UNVERIFIED")
+    assert model["results"][0]["reason"].count("FAIL'ed") == 1     # bench'in logu okundu, rc'ninki değil
+    # model_circuit verilmezse model aynı devrede ölçülür: rc'de vr_max 4.99999749785 <= 5.0
+    good = handle_tool_call("verify_specs", {**args, "model_specs": {"vr_max": {"max": 5.0, "source": "test"}}},
+                            adapter=adapter)
+    assert (good["verdict"], good["model_validation"]["circuit"], good["model_validation"]["verdict"]) == (
+        "PASS", "rc", "PASS")
+
+
+def test_tool_names_the_corner_of_the_worst_step(adapter):
+    """ref26_rc_tstart_step logu (LTspice 26.1.1): ".step r=1000" adımında v_max 3.58834481239, ".step r=2000"
+    adımında 2.69109368324. Alt sınırı 2. adım, üst sınırı 1. adım zorlar; köşe logun .step satırından okunur."""
+    _log(adapter, "swept", "ref26_rc_tstart_step")
+
+    def corner(spec):
+        res = handle_tool_call("verify_specs", {"circuit_name": "swept", "specs": {"v_max": spec}}, adapter=adapter)
+        return res["results"][0]["worst_params"], res["warnings"]
+
+    assert corner({"min": 3.0, "source": "test"}) == ({"r": 2000.0}, [])
+    assert corner({"max": 3.0, "source": "test"}) == ({"r": 1000.0}, [])
+
+
+def test_tool_warns_that_a_single_run_has_no_corners(adapter):
+    """ref26_flow_rc steplenmemiş (v_max 3.58834481239): PASS ya da UNVERIFIED karar köşeleri kapsamaz. FAIL zaten
+    ret, uyarı gerekmez. 3.6 sınırına pay 0.01165518761 < 0.1 koruma bandı: UNVERIFIED."""
+    _log(adapter, "rc", "ref26_flow_rc")
+
+    def run(spec):
+        res = handle_tool_call("verify_specs", {"circuit_name": "rc", "specs": {"v_max": spec}}, adapter=adapter)
+        return res["verdict"], res["warnings"], "worst_params" in res["results"][0]
+
+    for spec, verdict in (({"max": 4.0, "source": "test"}, "PASS"),
+                          ({"max": 3.6, "uncertainty": 0.1, "source": "test"}, "UNVERIFIED")):
+        got, warnings, has_corner = run(spec)
+        assert (got, len(warnings), has_corner) == (verdict, 1, False)
+        assert warnings[0].count("köşe yok") == 1
+    assert run({"max": 3.0, "source": "test"})[:2] == ("FAIL", [])
+    # Köşe uyarısı kaynak uyarısının yerine geçmez, yanına eklenir
+    got, warnings, _ = run({"max": 4.0})
+    assert (got, len(warnings)) == ("PASS", 2)
+    assert sum(w.count("kaynağı yok") for w in warnings) == 1 and sum(w.count("köşe yok") for w in warnings) == 1
+
+
 @pytest.fixture
 def replay(monkeypatch):
     """Gerçek sınır ``subprocess.Popen``: LTspice'a giden netlisti saklar, devre adına göre gerçek LTspice çıktılarını
@@ -358,3 +443,23 @@ def test_tool_numerical_check_does_not_use_an_unusable_rerun(adapter, replay, ou
     assert res["numerical_check"]["runs"][run][field] is False
     assert (res["status"], res["verdict"], row["status"]) == ("SUCCESS", "UNVERIFIED", "UNVERIFIED")
     assert row["reason"].count("sayısal kontrol") == 1
+
+
+def test_tool_numerical_check_covers_the_model_too(adapter, replay):
+    """model_specs da sayısal kontrolden geçer: modelin kararı da çözücü ayarına dayanır. Kayıtlar
+    test_tool_numerical_check_replays_real_reruns'tekiyle aynı; vr_max yayılımı 4.99999749786 - 4.99999749785 = 1e-11
+    (reltol koşumundan)."""
+    _numerical_base(adapter)
+    replay.outputs = {"rc_reltol": _RERUN["reltol"], "rc_gear": _RERUN["gear"]}
+    args = {"circuit_name": "rc", "specs": {"v_max": {"max": 4.0, "source": "test"}}, "numerical_check": True,
+            "model_specs": {"vr_max": {"max": 5.0, "source": "test"}}}
+    res = handle_tool_call("verify_specs", args, adapter=adapter)
+    model = res["model_validation"]
+    assert (res["verdict"], model["verdict"]) == ("PASS", "PASS"), res.get("message")
+    assert [run["circuit"] for run in model["numerical_check"]["runs"]] == ["rc_reltol", "rc_gear"]
+    assert model["results"][0]["numerical_uncertainty"] == pytest.approx(1e-11, abs=2e-15)
+    # Model devresinin netlisti yoksa yeniden koşulamaz: karar verilmez
+    _log(adapter, "bench", "ref26_flow_rc")
+    missing = handle_tool_call("verify_specs", {**args, "model_circuit": "bench"}, adapter=adapter)
+    assert missing["status"] == "ERROR" and missing["message"].count("Model doğrulaması yapılamadı") == 1
+    assert missing["message"].count("'bench' devresinin netlisti bulunamadı") == 1

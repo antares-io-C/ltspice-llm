@@ -61,8 +61,9 @@ LLM ya da Python ──(devre)──► ltspice-llm ──► LTspice (arka plan
   devrenin `.meas` sonuçlarını `min`/`max` sınırlarıyla karşılaştırır ve her ölçüm için en yakın sınıra payıyla
   birlikte PASS, FAIL ya da UNVERIFIED döner. Steplenmiş koşumda her adım sınanır; LTspice'ın hesaplayamadığı
   ölçüm geçmiş sayılmaz. Her sınır bir belirsizlik (JCGM 106'ya göre koruma bandı) ve kaynak taşıyabilir;
-  `numerical_check` devreyi daha sıkı çözücü ayarlarıyla yeniden koşup farkı koruma bandına ekler.
-  [docs/KILAVUZ.md](docs/KILAVUZ.md)
+  `numerical_check` devreyi daha sıkı çözücü ayarlarıyla yeniden koşup farkı koruma bandına ekler. Steplenmiş köşe
+  koşumunda en kötü adımın `.step` değerleri döner; `model_specs` önce modeli datasheet'ine karşı sınar, model
+  geçmezse tasarımın PASS'ı UNVERIFIED olur. [docs/KILAVUZ.md](docs/KILAVUZ.md)
 - **İz uzunluklarını KiCad kartından okuyun.** `read_kicad_board` bir `.kicad_pcb` dosyasını KiCad olmadan okur, iki
   pad arasındaki en kısa iz yolunu bulur ve netlist için R/L/C modeline çevirir; dielektrik ve bakır kalınlığı kartın
   katman yapısından alınır. `read_board_trace` aracı aynı işi modele yaptırır. Okuyucu kart dosyasını yalnızca okur

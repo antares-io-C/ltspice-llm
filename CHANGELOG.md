@@ -1,6 +1,6 @@
 # Değişiklik Günlüğü
 
-## Yayımlanmadı
+## 1.7.0 — 2026-11-14
 
 Yeni (2026-11-13):
 
@@ -17,6 +17,10 @@ Yeni (2026-11-13):
   korumalı kabul, 8.3.3 korumalı ret; `docs/references` `jcgm-106-2012`), sınıra belirsizlikten yakın sonuç
   `UNVERIFIED`. `source` sınırın kaynağıdır, yoksa uyarı. `numerical_check` devreyi `reltol=1e-4` ve Gear ile
   (sıkıştırma kapalı) yeniden koşup her ölçümün en büyük farkını koruma bandına ekler.
+- `verify_specs` köşeleri ve modeli (2026-11-14): steplenmiş koşumda her sonuç en kötü adımın `.step` değerlerini
+  `worst_params` olarak verir; yalnız tek koşum sınandıysa (ve hiçbir spec kalmadıysa) köşe uyarısı döner.
+  `model_specs` (ve `model_circuit`) modelin kendisini datasheet'ine karşı sınar; geçmezse tasarımın PASS sonuçları
+  UNVERIFIED olur (`require_model`).
 
 Düzeltildi (2026-11-13):
 

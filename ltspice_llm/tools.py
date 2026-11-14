@@ -47,8 +47,8 @@ from .parser import LogParser, RawParser
 from .quantizer import quantize_circuit_parameters
 from .reference import ReferenceDocs, find_model_definitions
 from .schematic import AscSchematic, write_asc_file
-from .specs import check_specs, measurement_steps, numerical_spread
-from .stability import raw_loop_margins
+from .specs import check_specs, measurement_steps, numerical_spread, require_model
+from .stability import _step_params, raw_loop_margins
 from .visualizer import WaveformVisualizer
 
 #: `get_ltspice_tool_schemas(format=...)` için desteklenen biçimler
@@ -560,7 +560,9 @@ def _extended_tool_schemas() -> List[Dict[str, Any]]:
                 "FAIL ya da UNVERIFIED kararı verir: devrenin doğru çalışıp çalışmadığını yorumla değil ölçütle "
                 "söyler. Sınırlar dahil. Steplenmiş koşumda her adım ayrı sınanır ve en kötü adım raporlanır (ortalama "
                 "değil). margin en yakın sınıra uzaklıktır, negatifse ihlaldir. Logda olmayan ya da LTspice'ın "
-                "hesaplayamadığı ölçüm UNVERIFIED'dır ve genel karar PASS olamaz: önce netliste .meas ekleyin."
+                "hesaplayamadığı ölçüm UNVERIFIED'dır ve genel karar PASS olamaz: önce netliste .meas ekleyin. "
+                "Tek koşumda köşe yoktur: tolerans, sıcaklık ve besleme köşelerini .step ile koşun; en kötü adımın "
+                ".step parametreleri worst_params'tadır. Önce modeli doğrulayın: model_specs."
             ),
             "parameters": {
                 "type": "object",
@@ -585,6 +587,19 @@ def _extended_tool_schemas() -> List[Dict[str, Any]]:
                             "doğruluk garantisi değildir: çözücü ayarının etkisi varsayılmaz, ölçülür. Süre üç katı."
                         ),
                         "default": False,
+                    },
+                    "model_specs": {
+                        "type": "object",
+                        "description": (
+                            "Önce modeli doğrula: modelin kendi datasheet değerleri için specs ile aynı biçimde sınırlar "
+                            "(op-amp GBW'si, regülatör dropout'u; source datasheet sayfası). Kararları PASS değilse "
+                            "tasarımın PASS sonuçları UNVERIFIED olur."
+                        ),
+                        "additionalProperties": True,
+                    },
+                    "model_circuit": {
+                        "type": "string",
+                        "description": "model_specs'in ölçüldüğü test devresi (varsayılan: circuit_name).",
                     },
                 },
                 "required": ["circuit_name", "specs"],
@@ -1676,28 +1691,62 @@ def _truthy(value: Any) -> bool:
     return value if isinstance(value, bool) else str(value).strip().casefold() in {"1", "true", "yes", "evet"}
 
 
-def _tool_verify_specs(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
+#: Tek koşumla verilen karar köşeleri kapsamaz (tolerans, sıcaklık, besleme); spec bütün köşelerde tutmalı.
+_SINGLE_RUN = ("Yalnız tek koşum sınandı, köşe yok: tolerans, sıcaklık ve besleme köşelerini .step ile ya da "
+               "simulate_monte_carlo ile koşup yeniden doğrulayın; spec bütün adımlarda tutmalı.")
+
+
+def _judge_circuit(adapter: LTSpiceAdapter, name: str, specs: Dict[str, Any], numerical_check: bool
+                   ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any]]:
+    """(`check_specs` raporu, ek bilgi); log yoksa ya da sayısal kontrol yapılamazsa (None, {"message": hata}).
+    Steplenmiş koşumda her sonuca en kötü adımın .step parametreleri (köşe) eklenir: ``worst_params``."""
     log_file = adapter.workspace_dir / f"{name}.log"
     if not log_file.exists():
-        return {"status": "ERROR", "message": f"Devre simülasyon logu bulunamadı: '{name}'. Önce devreyi simüle edin."}
+        return None, {"message": f"Devre simülasyon logu bulunamadı: '{name}'. Önce devreyi simüle edin."}
     parsed = LogParser.parse_file(log_file)
-    specs = _coerce_dict(args.get("specs"))
-    numerical: Optional[Dict[str, Optional[float]]] = None
-    check_info: Optional[Dict[str, Any]] = None
+    extra: Dict[str, Any] = {}
+    report = check_specs(measurement_steps(parsed), specs, parsed.failed_measurements)
+    if numerical_check:
+        numerical, check_info = _numerical_check(adapter, name, measurement_steps(parsed), list(specs))
+        if numerical is None:
+            return None, {"message": f"Sayısal kontrol yapılamadı: {check_info['error']}"}
+        report = check_specs(measurement_steps(parsed), specs, parsed.failed_measurements, numerical)
+        extra["numerical_check"] = check_info
+    if parsed.errors:
+        extra["simulation_errors"] = parsed.errors[:3]
+    params = _step_params(log_file)   # yolu .log'a çevirir; log zaten .log
+    if len(params) == report["steps"]:
+        for row in report["results"]:
+            if "worst_step" in row:
+                row["worst_params"] = params[row["worst_step"] - 1]
+    return report, extra
+
+
+def _tool_verify_specs(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
+    numerical_check = _truthy(args.get("numerical_check", False))
     try:
-        report = check_specs(measurement_steps(parsed), specs, parsed.failed_measurements)
-        if _truthy(args.get("numerical_check", False)):
-            numerical, check_info = _numerical_check(adapter, name, measurement_steps(parsed), list(specs))
-            if numerical is None:
-                return {"status": "ERROR", "message": f"Sayısal kontrol yapılamadı: {check_info['error']}"}
-            report = check_specs(measurement_steps(parsed), specs, parsed.failed_measurements, numerical)
+        report, extra = _judge_circuit(adapter, name, _coerce_dict(args.get("specs")), numerical_check)
     except ValueError as ex:
         return {"status": "ERROR", "message": str(ex)}
-    result: Dict[str, Any] = {"status": "SUCCESS", **report}
-    if check_info is not None:
-        result["numerical_check"] = check_info
-    if parsed.errors:
-        result["simulation_errors"] = parsed.errors[:3]
+    if report is None:
+        return {"status": "ERROR", **extra}
+    model: Optional[Dict[str, Any]] = None
+    model_specs = _coerce_dict(args.get("model_specs"))
+    if model_specs:
+        model_name = sanitize_circuit_name(str(args.get("model_circuit") or name))
+        try:
+            model, model_extra = _judge_circuit(adapter, model_name, model_specs, numerical_check)
+        except ValueError as ex:
+            return {"status": "ERROR", "message": f"model_specs: {ex}"}
+        if model is None:
+            return {"status": "ERROR", "message": f"Model doğrulaması yapılamadı: {model_extra['message']}"}
+        model = {"circuit": model_name, **model, **model_extra}
+        report = require_model(report, model)
+    result: Dict[str, Any] = {"status": "SUCCESS", **report, **extra}
+    if model is not None:
+        result["model_validation"] = model
+    if report["steps"] == 1 and report["verdict"] != "FAIL":
+        result["warnings"] = [*report["warnings"], _SINGLE_RUN]
     result["message"] = (f"Karar: {report['verdict']} ({report['passed']} geçti, {report['failed']} kaldı, "
                          f"{report['unverified']} doğrulanamadı).")
     return result

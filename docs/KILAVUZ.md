@@ -300,6 +300,8 @@ report = check_specs([run.measurements], specs)
 - `uncertainty` (ölçümün biriminde) her sınırın iki yanında koruma bandıdır, JCGM 106:2012'ye göre (8.3.2 korumalı kabul, 8.3.3 korumalı ret; yerel kopya `docs/references`, `jcgm-106-2012`): sınıra belirsizlikten yakın sonuç ne kabul ne ret, `UNVERIFIED`'dır. Belirsizlik verilmezse karar düz karşılaştırmadır.
 - `source` sınırın nereden geldiğini söyler (gereksinim, datasheet sayfası); kaynağı olmayan spec `warnings`'te listelenir.
 - `numerical_check` ile araç devreyi iki kez daha koşar, `reltol=1e-4` ile ve Gear ile, sıkıştırma kapalı (`plotwinsize=0`), ve her ölçümün en büyük değişimini koruma bandına ekler. `reltol` bir doğruluk garantisi değildir; çözücü ayarının etkisi varsayılmaz, ölçülür. Yeniden koşum başarısızsa ya da logunda Gear görünmüyorsa spec doğrulanamaz.
+- Köşeler: tek koşum tolerans, sıcaklık ve besleme köşeleri hakkında bir şey söylemez. Bu yüzden araç yalnız tek koşum sınandıysa uyarır (bir spec zaten kaldıysa uyarmaz). Köşeleri `.step` ile ya da `simulate_monte_carlo` ile koşun. Her sonuç en kötü adımının `.step` değerlerini logdan okuyup `worst_params`'ta verir.
+- Önce modeli doğrulayın. `model_specs` modelin kendisi için aynı biçimde sınırlar alır ve onu datasheet'ine karşı sınar, örneğin op-amp'ın GBW'sini ya da regülatörün dropout'unu. Bu sınırlar `model_circuit`'te ölçülür (varsayılan olarak aynı devre). Hepsi geçmezse tasarımın `PASS` sonuçları `UNVERIFIED` olur, çünkü kimsenin sınamadığı bir modele dayanırlar; `FAIL` kalır. Kodda `require_model(report, model_report)` aynısını yapar.
 
 ### Karttan iz yolu okuma (KiCad)
 
