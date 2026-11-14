@@ -530,3 +530,25 @@ def test_export_waveforms_csv_of_a_real_run(adapter):
     assert float(rows[-1][1]) == pytest.approx(5 * (1 - math.exp(-8)), rel=1e-3)
     worst = max(abs(float(v) - 5 * (1 - math.exp(-float(t) / 1e-3))) for t, v in rows)
     assert worst <= 5e-3
+
+
+def test_verify_specs_with_a_numerical_check_on_a_real_run(adapter):
+    """CMP_RC: t50 = RC·ln 2 = 0,693147 ms (elle; yukarıdaki karşılaştırma testiyle aynı tolerans, rel 5e-3).
+    numerical_check aynı devreyi reltol=1e-4 ve Gear ile iki kez daha koşar; Gear'ın uygulandığı logdan okunur
+    (GEMINI.md "method = Gear")."""
+    created = handle_tool_call("create_or_replace_circuit", {"circuit_name": "it_spec", "netlist_code": CMP_RC},
+                               adapter=adapter)
+    assert created["status"] == "SUCCESS", created
+    specs = {"t50": {"min": 0.6e-3, "max": 0.8e-3, "source": "elle: RC·ln 2"}}
+    res = handle_tool_call("verify_specs", {"circuit_name": "it_spec", "specs": specs, "numerical_check": True},
+                           adapter=adapter)
+    assert res["status"] == "SUCCESS" and res["verdict"] == "PASS" and res["warnings"] == [], res
+    (row,) = res["results"]
+    assert row["worst_value"] == pytest.approx(1e-3 * math.log(2), rel=5e-3)
+    runs = res["numerical_check"]["runs"]
+    assert [run["success"] for run in runs] == [True, True] and runs[1]["gear_in_log"] is True
+    # Yayılım yeniden koşumların kendi loglarından gelir: taban kendisiyle karşılaştırılsaydı 0 olurdu.
+    base = LogParser.parse_file(adapter.workspace_dir / "it_spec.log").measurements["t50"]
+    reruns = [LogParser.parse_file(adapter.workspace_dir / f"{run['circuit']}.log").measurements["t50"] for run in runs]
+    assert row["numerical_uncertainty"] == max(abs(t50 - base) for t50 in reruns)
+    assert row["numerical_uncertainty"] > 0.0 and row["uncertainty"] == row["numerical_uncertainty"]

@@ -4,7 +4,8 @@
     "ltspice": "LTspice ve SPICE yöntemi",
     "power": "Güç: kompanzasyon, takma anı, LDO",
     "analog": "Analog: op-amp, E serisi",
-    "pcb": "PCB: iz parazitikleri, dekuplaj, modül beslemesi"
+    "pcb": "PCB: iz parazitikleri, dekuplaj, modül beslemesi",
+    "metrology": "Ölçüm belirsizliği ve uygunluk kararı"
   },
   "documents": [
     {
@@ -117,6 +118,16 @@
       "expect": "NEO-M8",
       "why": "Besleme tasarımı (VCC hattına bobin/direnç koyma uyarısı), anten ve RF yerleşimi, V_BCKP.",
       "relates": "GEMINI.md datasheet doğrulama kuralı"
+    },
+    {
+      "id": "jcgm-106-2012",
+      "category": "metrology",
+      "title": "JCGM 106:2012 Evaluation of measurement data - The role of measurement uncertainty in conformity assessment (OIML G 1-106:2012 yeniden basımı)",
+      "publisher": "JCGM (BIPM) / OIML",
+      "url": "https://www.oiml.org/en/files/pdf_g/g001-106-e12.pdf",
+      "expect": "conformity assessment",
+      "why": "Spec kararında ölçüm belirsizliği: tolerans ve kabul sınırı, koruma bandı (guard band), basit ve korumalı kabul. Resmî sürüm BIPM'de, DOI 10.59161/JCGM106-2012.",
+      "relates": "ltspice_llm/specs.py (check_specs, verify_specs)"
     }
   ]
 }

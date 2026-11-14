@@ -9,7 +9,7 @@ bir log olmalı). LTspice güncellendiğinde yeniden çalıştırın:
     python examples/14_record_flow_fixtures.py          # hepsi
     python examples/14_record_flow_fixtures.py mc       # yalnızca adı verilen kayıtlar
 
-Kayıt adları: flow, mc, safety, schematic, crash, mean, stepraw, tstart, ini, measnames, compare.
+Kayıt adları: flow, mc, safety, schematic, crash, mean, stepraw, tstart, ini, measnames, compare, loop3, numerical.
 
 Kayıtlarda çalışma alanının yolu ``C:\\ws`` olur (log, netlist, ``.raw`` başlığı, ``LTspice.ini``): depo public, gerçek
 yol kullanıcı adını ve klasör düzenini gösterir (``tests/test_fixture_privacy.py``).
@@ -447,9 +447,31 @@ def record_loop3(workspace):
     print(f"LTspice {adapter.ltspice_version()}: raw {res.raw_path.stat().st_size} bayt -> tests/data/ref26_ac_loop3.*")
 
 
+def record_numerical(workspace):
+    """verify_specs'in sayısal kontrolü (tools._numerical_check): ref26_flow_rc'nin RC devresi aracın kendi
+    seçenekleriyle yeniden koşulur. tests/test_specs.py tabanı ref26_flow_rc'den, yeniden koşumları buradan oynatır."""
+    from ltspice_llm.netlist import insert_before_end
+    from ltspice_llm.tools import _NUMERICAL_RUNS
+
+    adapter = LTSpiceAdapter(workspace_dir=workspace, solver_threads=1)
+    for suffix, option in _NUMERICAL_RUNS:
+        name = f"ref26_flow_rc_{suffix}"
+        net = insert_before_end(RC, [option])
+        res = adapter.run_netlist(net, circuit_name=name, treat_as_text=True)
+        if not res.success:
+            raise SystemExit(f"Kayıt başarısız: {res.errors}")
+        log = LogParser.read_text(res.log_path).replace(str(workspace), r"C:\ws")
+        (DATA / f"{name}.log.txt").write_text(log, encoding="utf-8", newline="")
+        copy_raw(res.raw_path, DATA / f"{name}.raw", workspace)
+        (DATA / f"{name}.net").write_text(net, encoding="utf-8", newline="")
+        shown = [ln for ln in log.splitlines() if ln.startswith(("v_max", "vr_max", "method"))]
+        print(f"LTspice {adapter.ltspice_version()}: {' | '.join(shown)} -> tests/data/{name}.*")
+
+
 RECORDERS = {"flow": record_flow, "mc": record_monte_carlo, "safety": record_safety, "schematic": record_schematic,
              "crash": record_crash, "mean": record_mean, "stepraw": record_step_raw, "tstart": record_tstart,
-             "ini": record_ini, "measnames": record_meas_names, "compare": record_compare, "loop3": record_loop3}
+             "ini": record_ini, "measnames": record_meas_names, "compare": record_compare, "loop3": record_loop3,
+             "numerical": record_numerical}
 
 
 def main(argv=None):

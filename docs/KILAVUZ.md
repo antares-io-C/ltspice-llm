@@ -26,7 +26,7 @@ ltspice-llm'in ayrıntılı başvuru belgesi: özellikler, API örnekleri, perfo
    - `create_or_replace_circuit`, `modify_parameters`, `plot_transient_waveforms`, `plot_bode_diagram`, `get_circuit_netlist`, `list_circuits`, `quantize_parameters`, `diagnose_circuit_issue`, `optimize_parameter`, `search_ltspice_reference`.
    - Şemalar `get_ltspice_tool_schemas(format=...)` ile `generic`, `openai`, `anthropic` ve `gemini` biçimlerinde alınır. Biçimler sağlayıcı dokümantasyonuna göre üretilir, canlı API üzerinde otomatik test edilmez.
    - Araç argümanları sözlük veya JSON metni olabilir (OpenAI argümanları metin olarak gönderir).
-   - Genişletilmiş küme (`include_extended=True`) tasarım araçlarına ek olarak `compare_circuits` (iki devrenin netlist ve `.meas` farkı), `export_waveforms_csv` (dalga formlarını CSV'ye yazar), `read_board_trace` (KiCad kartından iz yolu ve parazitik modeli) ve `analyze_loop_stability` (bir `.ac` koşumundan geri besleme döngüsünün faz ve kazanç payı) araçlarını içerir; ayrıntı aşağıda "LLM Ajanı Entegrasyonu" bölümünde.
+   - Genişletilmiş küme (`include_extended=True`) tasarım araçlarına ek olarak `compare_circuits` (iki devrenin netlist ve `.meas` farkı), `export_waveforms_csv` (dalga formlarını CSV'ye yazar), `read_board_trace` (KiCad kartından iz yolu ve parazitik modeli) `analyze_loop_stability` (bir `.ac` koşumundan geri besleme döngüsünün faz ve kazanç payı) ve `verify_specs` (`.meas` sonuçları için sınırlara göre PASS/FAIL/UNVERIFIED) araçlarını içerir; ayrıntı aşağıda "LLM Ajanı Entegrasyonu" bölümünde.
 
 5. **Standart Komponent Kuantalama (E-Series Snapping):**
    - Teorik değerleri (örn: $15.915\text{ k}\Omega, 1.414\text{ nF}$) **E6, E12, E24, E96** serilerine yuvarlar (nearest, floor, ceil) ve sapma analizini sunar.
@@ -219,7 +219,7 @@ Claude ile eksiksiz döngü (model kimliği, `effort`, reddedilen istek için `f
 - Ajanın varsayılan sistem istemi Türkçedir; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` İngilizce çevirisini verir. Araç açıklamaları ve araç sonuçlarındaki mesajlar istemden bağımsız olarak Türkçedir.
 - Genişletilmiş araçlar için ajanı `include_extended=True` ile kurun ve API'ye `get_ltspice_tool_schemas("anthropic", include_extended=True)` verin.
 
-Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo, birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`, iki devreyi karşılaştıran `compare_circuits`, dalga formlarını dosyaya yazan `export_waveforms_csv`, KiCad kartından iz yolu okuyan `read_board_trace` ve geri besleme döngüsünün faz ve kazanç payını veren `analyze_loop_stability`.
+Genişletilmiş araçlar (`include_extended=True`): şema çizimi, iz parazitikleri, takma anı, SOA/derating, Monte Carlo, birden çok parametreyi birden çok `.meas` hedefine Nelder-Mead ile ayarlayan `optimize_parameters`, iki devreyi karşılaştıran `compare_circuits`, dalga formlarını dosyaya yazan `export_waveforms_csv`, KiCad kartından iz yolu okuyan `read_board_trace` geri besleme döngüsünün faz ve kazanç payını veren `analyze_loop_stability` ve `.meas` sonuçlarını sınırlarla karşılaştıran `verify_specs`.
 
 ### İki devreyi karşılaştırma
 
@@ -278,6 +278,28 @@ margins = stability_margins(freq_hz, loop_gain)  # kendi karmaşık T(jω) örne
 - Steplenmiş koşum adım başına bir sonuç verir (CSV dışa aktarımındaki gibi 1'den başlar); `params` o adımın parametre değerlerini `.log`'dan, LTspice'ın koştuğu sırayla verir (ör. `{"kloop": 4.0}`).
 - `analyze_loop_stability` aracı aynısını model için yapar (genişletilmiş küme). Testler onu, payları kapalı biçimde bilinen üç kutuplu bir döngünün LTspice koşumuna karşı denetler.
 - Uçtan uca örnek: [examples/22_loop_stability_capacitive_load.py](../examples/22_loop_stability_capacitive_load.py) kapasitif yükün op-amp izleyicinin faz payını ne kadar düşürdüğünü ve yalıtım direncinin onu nasıl geri kazandırdığını ölçer, sonucu adım yanıtındaki aşmayla karşılaştırır.
+
+### Sonuçları spec'lerle doğrulama
+
+Devrenin çalışıp çalışmadığına sayılara bakarak değil, önceden yazılmış sınırlarla karar verilir. `check_specs` `.meas` sonuçlarını `min`/`max` sınırlarıyla karşılaştırır; `verify_specs` aracı aynısını model için simüle edilmiş bir devrenin logundan yapar (genişletilmiş küme).
+
+```python
+from ltspice_llm import check_specs
+
+specs = {"v_out": {"min": 3.2, "max": 3.4, "uncertainty": 0.01, "source": "<requirement or datasheet page>"},
+         "t_settle": {"max": "1m", "source": "<requirement or datasheet page>"}}
+report = check_specs([run.measurements], specs)
+# report: {"verdict": ..., "passed": ..., "failed": ..., "unverified": ..., "steps": 1, "warnings": [],
+#          "results": [{"name": "v_out", "status": ..., "min": 3.2, "max": 3.4, "source": "...", "worst_value": ...,
+#          "worst_step": 1, "margin": ..., "uncertainty": 0.01, "failed_steps": []}, ...]}
+```
+
+- Sınırlar dahildir. `margin` en yakın sınıra uzaklıktır: içeride sıfır ya da pozitif, dışarıda ihlalin büyüklüğü kadar negatif.
+- Steplenmiş koşumda her adım sınanır ve en kötü adım raporlanır: koşumun `measurements`'ı adımların ortalamasıdır, sınırı aşan bir adımı gizlerdi.
+- Logda olmayan ya da LTspice'ın hesaplayamadığı (`FAIL'ed`) ölçüm `UNVERIFIED`'dır ve o zaman karar `PASS` olamaz. Bir spec kaldıysa karar `FAIL`, yoksa doğrulanamayan varsa `UNVERIFIED`'dır.
+- `uncertainty` (ölçümün biriminde) her sınırın iki yanında koruma bandıdır, JCGM 106:2012'ye göre (8.3.2 korumalı kabul, 8.3.3 korumalı ret; yerel kopya `docs/references`, `jcgm-106-2012`): sınıra belirsizlikten yakın sonuç ne kabul ne ret, `UNVERIFIED`'dır. Belirsizlik verilmezse karar düz karşılaştırmadır.
+- `source` sınırın nereden geldiğini söyler (gereksinim, datasheet sayfası); kaynağı olmayan spec `warnings`'te listelenir.
+- `numerical_check` ile araç devreyi iki kez daha koşar, `reltol=1e-4` ile ve Gear ile, sıkıştırma kapalı (`plotwinsize=0`), ve her ölçümün en büyük değişimini koruma bandına ekler. `reltol` bir doğruluk garantisi değildir; çözücü ayarının etkisi varsayılmaz, ölçülür. Yeniden koşum başarısızsa ya da logunda Gear görünmüyorsa spec doğrulanamaz.
 
 ### Karttan iz yolu okuma (KiCad)
 

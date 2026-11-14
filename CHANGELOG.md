@@ -10,6 +10,13 @@ Yeni (2026-11-13):
   `.ac` koşumunun `.raw`'ından, Middlebrook enjeksiyonuyla açılmış döngüde (T = -V(y)/V(x)) adım adım yapar.
 - `analyze_loop_stability` aracı (genişletilmiş küme; varsayılan 10 araç değişmedi). Steplenmiş koşumda her adımın
   parametre değerleri `.log`'dan `params` olarak döner.
+- `verify_specs` aracı ve `check_specs` fonksiyonu (`ltspice_llm.specs`): `.meas` sonuçlarını `min`/`max`
+  sınırlarıyla karşılaştırıp ölçüm başına PASS/FAIL/UNVERIFIED ve en yakın sınıra payı verir. Steplenmiş koşumda
+  her adım sınanır (ortalama değil); logda olmayan ya da LTspice'ın hesaplayamadığı ölçüm geçmiş sayılmaz.
+- `verify_specs` belirsizliği (2026-11-14): `uncertainty` iki yanlı koruma bandıdır (JCGM 106:2012 8.3.2
+  korumalı kabul, 8.3.3 korumalı ret; `docs/references` `jcgm-106-2012`), sınıra belirsizlikten yakın sonuç
+  `UNVERIFIED`. `source` sınırın kaynağıdır, yoksa uyarı. `numerical_check` devreyi `reltol=1e-4` ve Gear ile
+  (sıkıştırma kapalı) yeniden koşup her ölçümün en büyük farkını koruma bandına ekler.
 
 Düzeltildi (2026-11-13):
 

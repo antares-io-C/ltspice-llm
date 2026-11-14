@@ -57,6 +57,12 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
   phase margin of an op-amp follower and how an isolation resistor restores it.
   [examples/22_loop_stability_capacitive_load.py](examples/22_loop_stability_capacitive_load.py),
   [docs/GUIDE.md](docs/GUIDE.md#phase-and-gain-margin-of-a-feedback-loop)
+- **Check results against specs.** Write the limits down and let the code decide: `verify_specs` compares a
+  simulated circuit's `.meas` results with `min`/`max` limits and returns PASS, FAIL or UNVERIFIED per
+  measurement, with the margin to the nearest limit. Every step of a stepped run is checked, and a measurement
+  LTspice could not compute is never a pass. Each limit can carry an uncertainty, used as a guard band
+  (JCGM 106), and a source; `numerical_check` reruns the circuit with tighter solver settings and adds the
+  change to the guard band. [docs/GUIDE.md](docs/GUIDE.md#checking-results-against-specs)
 - **Read trace lengths from a KiCad board.** `read_kicad_board` reads a `.kicad_pcb` file without KiCad, finds the
   shortest trace path between two pads and turns it into an R/L/C model for the netlist, with the dielectric and
   copper thickness taken from the board's stackup; the `read_board_trace` tool lets a model do the same. The reader

@@ -26,7 +26,7 @@ Detailed reference for ltspice-llm: features, API examples, performance measurem
    - `create_or_replace_circuit`, `modify_parameters`, `plot_transient_waveforms`, `plot_bode_diagram`, `get_circuit_netlist`, `list_circuits`, `quantize_parameters`, `diagnose_circuit_issue`, `optimize_parameter`, `search_ltspice_reference`.
    - Schemas are obtained in `generic`, `openai`, `anthropic` and `gemini` formats with `get_ltspice_tool_schemas(format=...)`. The formats are produced according to the provider documentation and are not tested automatically against the live API.
    - Tool arguments can be a dictionary or JSON text (OpenAI sends arguments as text).
-   - The extended set (`include_extended=True`) adds, besides the design tools, `compare_circuits` (netlist and `.meas` difference of two circuits), `export_waveforms_csv` (writes waveforms to CSV), `read_board_trace` (trace path and parasitic model from a KiCad board) and `analyze_loop_stability` (phase and gain margin of a feedback loop from an `.ac` run); details are in "LLM Agent Integration" below.
+   - The extended set (`include_extended=True`) adds, besides the design tools, `compare_circuits` (netlist and `.meas` difference of two circuits), `export_waveforms_csv` (writes waveforms to CSV), `read_board_trace` (trace path and parasitic model from a KiCad board) `analyze_loop_stability` (phase and gain margin of a feedback loop from an `.ac` run) and `verify_specs` (PASS/FAIL/UNVERIFIED for `.meas` results against limits); details are in "LLM Agent Integration" below.
 
 5. **Standard Component Quantization (E-Series Snapping):**
    - Rounds theoretical values (e.g.: $15.915\text{ k}\Omega, 1.414\text{ nF}$) to the **E6, E12, E24, E96** series (nearest, floor, ceil) and provides deviation analysis.
@@ -219,7 +219,7 @@ For a complete loop with Claude (model ID, `effort`, `fallbacks` for a refused r
 - The agent's default system prompt is Turkish; `AutonomousCircuitAgent(system_prompt=CIRCUIT_DESIGNER_SYSTEM_PROMPT_EN)` gives its English translation. Tool descriptions and the messages in tool results are Turkish regardless of the prompt.
 - For the extended tools, create the agent with `include_extended=True` and give the API `get_ltspice_tool_schemas("anthropic", include_extended=True)`.
 
-Extended tools (`include_extended=True`): schematic drawing, trace parasitics, hot-plug, SOA/derating, Monte Carlo, `optimize_parameters`, which tunes several parameters toward several `.meas` targets with Nelder-Mead, `compare_circuits`, which compares two circuits, `export_waveforms_csv`, which writes waveforms to a file, `read_board_trace`, which reads a trace path from a KiCad board, and `analyze_loop_stability`, which gives the phase and gain margin of a feedback loop.
+Extended tools (`include_extended=True`): schematic drawing, trace parasitics, hot-plug, SOA/derating, Monte Carlo, `optimize_parameters`, which tunes several parameters toward several `.meas` targets with Nelder-Mead, `compare_circuits`, which compares two circuits, `export_waveforms_csv`, which writes waveforms to a file, `read_board_trace`, which reads a trace path from a KiCad board, `analyze_loop_stability`, which gives the phase and gain margin of a feedback loop, and `verify_specs`, which checks `.meas` results against limits.
 
 ### Comparing two circuits
 
@@ -278,6 +278,28 @@ margins = stability_margins(freq_hz, loop_gain)  # the same calculation on your 
 - A stepped run gives one entry per step (starting at 1, as in the CSV export); `params` holds that step's parameter values from the `.log`, in the order LTspice ran them (for example `{"kloop": 4.0}`).
 - The `analyze_loop_stability` tool does the same for a model (extended set). The tests check it against an LTspice run of a three-pole loop whose margins are known in closed form.
 - End-to-end example: [examples/22_loop_stability_capacitive_load.py](../examples/22_loop_stability_capacitive_load.py) measures how a capacitive load lowers the phase margin of an op-amp follower and how an isolation resistor restores it, and checks the result against the overshoot of the step response.
+
+### Checking results against specs
+
+Whether a circuit works is decided by limits written down in advance, not by reading the numbers. `check_specs` compares `.meas` results with `min`/`max` limits; the `verify_specs` tool does the same for a model from a simulated circuit's log (extended set).
+
+```python
+from ltspice_llm import check_specs
+
+specs = {"v_out": {"min": 3.2, "max": 3.4, "uncertainty": 0.01, "source": "<requirement or datasheet page>"},
+         "t_settle": {"max": "1m", "source": "<requirement or datasheet page>"}}
+report = check_specs([run.measurements], specs)
+# report: {"verdict": ..., "passed": ..., "failed": ..., "unverified": ..., "steps": 1, "warnings": [],
+#          "results": [{"name": "v_out", "status": ..., "min": 3.2, "max": 3.4, "source": "...", "worst_value": ...,
+#          "worst_step": 1, "margin": ..., "uncertainty": 0.01, "failed_steps": []}, ...]}
+```
+
+- The limits are inclusive. `margin` is the distance to the nearest limit: zero or more inside, negative by the size of the violation outside.
+- In a stepped run every step is checked and the worst step is reported: the run's `measurements` are the mean over the steps, which would hide a step that breaks a limit.
+- A measurement that is not in the log, or that LTspice could not compute (`FAIL'ed`), is `UNVERIFIED`, and then the verdict cannot be `PASS`. The verdict is `FAIL` if any spec failed, otherwise `UNVERIFIED` if any spec could not be checked.
+- `uncertainty` (in the unit of the measurement) is a guard band on both sides of each limit, following JCGM 106:2012 (8.3.2 guarded acceptance, 8.3.3 guarded rejection; local copy in `docs/references`, `jcgm-106-2012`): a result closer to the limit than the uncertainty is neither accepted nor rejected but `UNVERIFIED`. Without an uncertainty the decision is the plain comparison.
+- `source` says where the limit comes from (requirement, datasheet page); a spec without one is listed in `warnings`.
+- With `numerical_check` the tool runs the circuit twice more, with `reltol=1e-4` and with Gear, compression off (`plotwinsize=0`), and adds the largest change of each measurement to its guard band. `reltol` is not an accuracy guarantee, so the effect of the solver settings is measured, not assumed. If a rerun fails, or Gear does not show in its log, the spec cannot be verified.
 
 ### Reading a trace path from a KiCad board
 

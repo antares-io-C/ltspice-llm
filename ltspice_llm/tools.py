@@ -47,6 +47,7 @@ from .parser import LogParser, RawParser
 from .quantizer import quantize_circuit_parameters
 from .reference import ReferenceDocs, find_model_definitions
 from .schematic import AscSchematic, write_asc_file
+from .specs import check_specs, measurement_steps, numerical_spread
 from .stability import raw_loop_margins
 from .visualizer import WaveformVisualizer
 
@@ -550,6 +551,43 @@ def _extended_tool_schemas() -> List[Dict[str, Any]]:
                                        "default": 35},
                 },
                 "required": ["circuit_name", "param_bounds", "target_metrics"],
+            },
+        },
+        {
+            "name": "verify_specs",
+            "description": (
+                "Simüle edilmiş bir devrenin .meas sonuçlarını açık sınırlarla karşılaştırır ve her ölçüm için PASS, "
+                "FAIL ya da UNVERIFIED kararı verir: devrenin doğru çalışıp çalışmadığını yorumla değil ölçütle "
+                "söyler. Sınırlar dahil. Steplenmiş koşumda her adım ayrı sınanır ve en kötü adım raporlanır (ortalama "
+                "değil). margin en yakın sınıra uzaklıktır, negatifse ihlaldir. Logda olmayan ya da LTspice'ın "
+                "hesaplayamadığı ölçüm UNVERIFIED'dır ve genel karar PASS olamaz: önce netliste .meas ekleyin."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "circuit_name": {"type": "string", "description": "Simüle edilmiş devrenin adı."},
+                    "specs": {
+                        "type": "object",
+                        "description": (
+                            "{ölçüm: {'min': alt, 'max': üst, 'uncertainty': U, 'source': 'kaynak'}}; sınırlardan "
+                            "biri yeter (örn: {'v_out': {'min': 3.2, 'max': 3.4, 'uncertainty': 0.01, 'source': "
+                            "'gereksinim R-12'}}). Ölçüm adı netlistteki .meas adıdır. uncertainty iki yanlı koruma "
+                            "bandıdır: sınıra U'dan yakın sonuç ne kabul ne ret, UNVERIFIED'dır (JCGM 106:2012 korumalı "
+                            "kabul ve ret). source sınırın kaynağıdır (datasheet sayfası, gereksinim); yoksa uyarı döner."
+                        ),
+                        "additionalProperties": True,
+                    },
+                    "numerical_check": {
+                        "type": "boolean",
+                        "description": (
+                            "true ise devre reltol=1e-4 ile ve Gear ile iki kez daha koşulur (sıkıştırma kapalı); her "
+                            "ölçümün en büyük farkı sayısal belirsizlik olarak koruma bandına eklenir. reltol bir "
+                            "doğruluk garantisi değildir: çözücü ayarının etkisi varsayılmaz, ölçülür. Süre üç katı."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["circuit_name", "specs"],
             },
         },
         {
@@ -1599,6 +1637,72 @@ def _tool_export_csv(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -
     }
 
 
+#: verify_specs'in sayısal kontrolü: aynı netlist bu seçeneklerle yeniden koşulur. Sıkıştırma kapalı (ADI
+#: TROUBLESHOOTING-GUIDE "Waveform Compression": örnek-örnek kesin veri için plotwinsize=0). reltol bir doğruluk
+#: garantisi değildir (2026-11-13: nokta başına reltol·|V| + vntol sınırı 2,47 kat aşıldı); Gear trapezden farklı
+#: bir integrasyondur (GEMINI.md: salınımda Gear ile tekrar). Fark ölçülür, varsayılmaz.
+_NUMERICAL_RUNS = (("reltol", ".options reltol=1e-4 plotwinsize=0"), ("gear", ".options method=gear plotwinsize=0"))
+
+
+def _numerical_check(adapter: LTSpiceAdapter, name: str, base: List[Dict[str, Any]], names: Sequence[str]
+                     ) -> Tuple[Optional[Dict[str, Optional[float]]], Dict[str, Any]]:
+    """(ölçüm başına sayısal belirsizlik, koşum bilgisi); netlist yoksa ya da reddedilirse belirsizlik ``None``."""
+    netlist_file = adapter.workspace_dir / f"{name}.net"
+    if not netlist_file.exists():
+        return None, {"error": f"'{name}' devresinin netlisti bulunamadı; sayısal kontrol yeniden koşum ister."}
+    text = strip_auto_directives(netlist_file.read_text(encoding="utf-8", errors="ignore"))
+    runs: List[Dict[str, Any]] = []
+    reruns: List[Optional[List[Dict[str, Any]]]] = []
+    for suffix, option in _NUMERICAL_RUNS:
+        variant = insert_before_end(text, [option])
+        refused = _refused_file_access(variant, "netlist")
+        if refused is not None:
+            return None, {"error": refused["message"]}
+        circuit = sanitize_circuit_name(f"{name}_{suffix}")
+        res = adapter.run_netlist(variant, circuit_name=circuit, treat_as_text=True)
+        log_path = res.log_path
+        info: Dict[str, Any] = {"circuit": circuit, "options": option, "success": bool(res.success)}
+        usable = bool(res.success) and log_path is not None
+        if usable and log_path is not None and suffix == "gear":
+            info["gear_in_log"] = bool(re.search(r"^method\s*=\s*Gear", LogParser.read_text(log_path), re.MULTILINE))
+            usable = info["gear_in_log"]
+        runs.append(info)
+        reruns.append(measurement_steps(LogParser.parse_file(log_path)) if usable and log_path is not None else None)
+    return numerical_spread(base, reruns, names), {"runs": runs}
+
+
+def _truthy(value: Any) -> bool:
+    """Model bayrağı metin olarak da gönderebilir ("true"); bool("false") doğru olurdu."""
+    return value if isinstance(value, bool) else str(value).strip().casefold() in {"1", "true", "yes", "evet"}
+
+
+def _tool_verify_specs(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
+    log_file = adapter.workspace_dir / f"{name}.log"
+    if not log_file.exists():
+        return {"status": "ERROR", "message": f"Devre simülasyon logu bulunamadı: '{name}'. Önce devreyi simüle edin."}
+    parsed = LogParser.parse_file(log_file)
+    specs = _coerce_dict(args.get("specs"))
+    numerical: Optional[Dict[str, Optional[float]]] = None
+    check_info: Optional[Dict[str, Any]] = None
+    try:
+        report = check_specs(measurement_steps(parsed), specs, parsed.failed_measurements)
+        if _truthy(args.get("numerical_check", False)):
+            numerical, check_info = _numerical_check(adapter, name, measurement_steps(parsed), list(specs))
+            if numerical is None:
+                return {"status": "ERROR", "message": f"Sayısal kontrol yapılamadı: {check_info['error']}"}
+            report = check_specs(measurement_steps(parsed), specs, parsed.failed_measurements, numerical)
+    except ValueError as ex:
+        return {"status": "ERROR", "message": str(ex)}
+    result: Dict[str, Any] = {"status": "SUCCESS", **report}
+    if check_info is not None:
+        result["numerical_check"] = check_info
+    if parsed.errors:
+        result["simulation_errors"] = parsed.errors[:3]
+    result["message"] = (f"Karar: {report['verdict']} ({report['passed']} geçti, {report['failed']} kaldı, "
+                         f"{report['unverified']} doğrulanamadı).")
+    return result
+
+
 def _tool_loop_stability(args: Dict[str, Any], name: str, adapter: LTSpiceAdapter) -> Dict[str, Any]:
     raw_file = adapter.workspace_dir / f"{name}.raw"
     if not raw_file.exists():
@@ -1725,6 +1829,7 @@ _CIRCUIT_TOOLS: Dict[str, Callable[[Dict[str, Any], str, LTSpiceAdapter], Dict[s
     "export_waveforms_csv": _tool_export_csv,
     "read_board_trace": _tool_board_trace,
     "analyze_loop_stability": _tool_loop_stability,
+    "verify_specs": _tool_verify_specs,
 }
 
 

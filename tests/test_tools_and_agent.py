@@ -516,7 +516,7 @@ def test_agent_can_offer_the_extended_tools_to_the_model(adapter):
     agent = AutonomousCircuitAgent(adapter=adapter, include_extended=True)
     seen = []
     out = agent.run("x", lambda m, tools: seen.append({t["name"] for t in tools}) or {"content": "ok", "tool_calls": []})
-    assert out["finished"] is True and len(seen[0]) == 20  # 10 temel + 10 genişletilmiş (docs/KILAVUZ.md)
+    assert out["finished"] is True and len(seen[0]) == 21  # 10 temel + 11 genişletilmiş (docs/KILAVUZ.md)
     assert {"simulate_monte_carlo", "check_design_safety", "calculate_trace_parasitics", "analyze_hotplug_transient",
             "create_or_replace_schematic", "optimize_parameters", "list_circuits"} <= seen[0]
 
@@ -743,11 +743,12 @@ def test_optimize_multi_parameters_finds_a_microsecond_target():
 # ------------------------------------------------------------------ genişletilmiş araçlar
 def test_extended_tool_schemas():
     tools = get_ltspice_tool_schemas(include_extended=True)
-    # 2026-11-13: read_board_trace ve analyze_loop_stability; 2026-11-11: compare_circuits ve export_waveforms_csv
+    # 2026-11-13: read_board_trace, analyze_loop_stability ve verify_specs; 2026-11-11: compare_circuits ve export_waveforms_csv
     # eklendi (docs/KILAVUZ.md)
-    assert len(tools) == 20
+    assert len(tools) == 21
     extended_names = {
         "analyze_loop_stability",
+        "verify_specs",
         "read_board_trace",
         "compare_circuits",
         "export_waveforms_csv",
@@ -763,11 +764,11 @@ def test_extended_tool_schemas():
 
     # Sağlayıcı dönüşümleri genişletilmiş araçlarda da çalışmalı
     openai_tools = get_ltspice_tool_schemas("openai", include_extended=True)
-    assert len(openai_tools) == 20
+    assert len(openai_tools) == 21
     anthropic_tools = get_ltspice_tool_schemas("anthropic", include_extended=True)
-    assert len(anthropic_tools) == 20
+    assert len(anthropic_tools) == 21
     gemini_tools = get_ltspice_tool_schemas("gemini", include_extended=True)
-    assert len(gemini_tools[0]["function_declarations"]) == 20
+    assert len(gemini_tools[0]["function_declarations"]) == 21
 
 
 def test_tool_calculate_trace_parasitics():
