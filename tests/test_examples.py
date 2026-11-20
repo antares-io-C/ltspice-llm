@@ -37,7 +37,7 @@ def load_example(monkeypatch):
 
 
 def test_every_numbered_example_is_listed():
-    assert len(ALL_EXAMPLES) == 18 and ALL_EXAMPLES[0].startswith("01_") and ALL_EXAMPLES[-1].startswith("22_")
+    assert len(ALL_EXAMPLES) == 19 and ALL_EXAMPLES[0].startswith("01_") and ALL_EXAMPLES[-1].startswith("23_")
 
 
 @pytest.mark.parametrize("stem", ALL_EXAMPLES)
@@ -66,6 +66,7 @@ _FAST_ARGS = {
     "17_gemini_review_3": ["--hizli"],
     "21_board_trace_to_simulation": ["--hizli"],
     "22_loop_stability_capacitive_load": ["--hizli"],
+    "23_monitor_and_schematic_checks": ["--hizli"],
 }
 #: Raporunu LTSPICE_LLM_REPORT_DIR'e yazan örnekler
 _OUTPUTS = {stem: [f"{stem}.html", f"{stem}.parca.html"] for stem in (

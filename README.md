@@ -44,6 +44,12 @@ LLM or Python ──(circuit)──► ltspice-llm ──► LTspice (in the bac
 - **Sweep and run in parallel.** `run_sweep` runs a parameter sweep as a single LTspice `.step` run; `run_batch` runs
   independent circuits at the same time and caps the solver threads so the instances do not livelock.
   [examples/10_performance_fast_paths.py](examples/10_performance_fast_paths.py)
+- **Watch LTspice runs live in a browser.** With `LTSPICE_LLM_EVENTS=1`, `python -m ltspice_llm.monitor` serves a local
+  page: running circuits with their stage, threads and growing `.raw`, the core budget, and finished runs with the thread
+  count and method read from the LTspice log. [docs/GUIDE.md](docs/GUIDE.md#watching-runs-live-in-a-browser)
+- **See your schematics in the browser.** `python -m ltspice_llm.monitor --asc <folder>` draws each `.asc` with the
+  symbols from LTspice's library. It redraws within a second of a save, in LTspice or from code.
+  [docs/GUIDE.md](docs/GUIDE.md#viewing-schematics-live)
 - **Check a formula against LTspice and write a report.** A single-file HTML report with waveforms, measurement tables
   and reliability checks. [examples/15_hotplug_damping_validation.py](examples/15_hotplug_damping_validation.py)
 - **Compare two runs and export waveforms.** `compare_circuits` tells which netlist variables differ between two

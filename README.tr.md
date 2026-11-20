@@ -44,6 +44,13 @@ LLM ya da Python ──(devre)──► ltspice-llm ──► LTspice (arka plan
 - **Tarama ve paralel koşum.** `run_sweep` parametre taramasını tek bir LTspice `.step` koşumunda yapar; `run_batch`
   bağımsız devreleri aynı anda koşar ve örnekler kilitlenmesin diye çözücü iş parçacıklarını sınırlar.
   [examples/10_performance_fast_paths.py](examples/10_performance_fast_paths.py)
+- **LTspice koşumlarını tarayıcıda canlı izleyin.** `LTSPICE_LLM_EVENTS=1` iken `python -m ltspice_llm.monitor` yerel
+  bir sayfa açar. Sayfada çalışan devreler (aşama, iş parçacığı, büyüyen `.raw`), çekirdek bütçesi ve biten koşumlar
+  (LTspice logundan okunan iş parçacığı sayısı ve method) görünür.
+  [docs/KILAVUZ.md](docs/KILAVUZ.md#koşumları-tarayıcıda-canlı-izleme)
+- **Şemalarınızı tarayıcıda görün.** `python -m ltspice_llm.monitor --asc <klasör>` her `.asc`'yi LTspice
+  kütüphanesindeki sembollerle çizer. LTspice'ta ya da koddan kaydedildikten sonraki bir saniye içinde yeniden çizer.
+  [docs/KILAVUZ.md](docs/KILAVUZ.md#şemaları-canlı-görüntüleme)
 - **Bir formülü LTspice ile sınayıp rapor yazın.** Dalga formları, ölçüm tabloları ve güvenilirlik denetimleriyle tek
   dosyalık HTML rapor. [examples/15_hotplug_damping_validation.py](examples/15_hotplug_damping_validation.py)
 - **İki koşumu karşılaştırın, dalga formlarını dışa aktarın.** `compare_circuits` simüle edilmiş iki devre arasında

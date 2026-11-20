@@ -23,7 +23,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 #: LTspice veri klasörünü (``reference``, ``lib``, ``examples`` içeren) açıkça belirtir
 ENV_DATA_DIR = "LTSPICE_DATA_DIR"
@@ -78,6 +78,56 @@ def ltspice_user_dir() -> Optional[Path]:
             folder = Path(ntpath.expandvars(value.strip()))
             return folder if folder.is_dir() else None
     return None
+
+
+def _ltspice_ini_text() -> str:
+    """``%APPDATA%\\LTspice.ini``'nin metni (bkz. `ltspice_user_dir`); dosya yoksa ya da okunamazsa boş."""
+    appdata = os.environ.get("APPDATA")
+    ini = Path(appdata) / "LTspice.ini" if appdata else None
+    if ini is None or not ini.is_file():
+        return ""
+    from .schematic import decode_asc_bytes
+
+    try:
+        return decode_asc_bytes(ini.read_bytes())[0]
+    except OSError:
+        return ""
+
+
+def ltspice_ini_section(name: str) -> List[Tuple[str, str]]:
+    """LTspice'ın ayar dosyasındaki ``[name]`` bölümünün (anahtar, değer) satırları, dosyadaki sırayla; yoksa boş."""
+    entries: List[Tuple[str, str]] = []
+    inside = False
+    for line in _ltspice_ini_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            inside = stripped[1:-1] == name
+        elif inside:
+            key, sep, value = stripped.partition("=")
+            if sep:
+                entries.append((key.strip(), value.strip()))
+    return entries
+
+
+def ltspice_working_dir() -> Optional[Path]:
+    """LTspice'ın çalışma klasörü (ayar dosyasında ``[Options] WorkingDirectory``); ayar ya da klasör yoksa None."""
+    for key, value in ltspice_ini_section("Options"):
+        if key == "WorkingDirectory" and value:
+            folder = Path(ntpath.expandvars(value))
+            return folder if folder.is_dir() else None
+    return None
+
+
+def ltspice_recent_files() -> List[Path]:
+    """
+    LTspice'ta son açılan dosyalar, en yenisi önce: ayar dosyasının ``[Recent File List]`` bölümündeki ``File1``,
+    ``File2``… (LTspice 26.1.1'in yazdığı biçim; Dosya menüsündeki "Recent Files"). Yalnız hâlâ var olanlar.
+    """
+    numbered = []
+    for key, value in ltspice_ini_section("Recent File List"):
+        if key.startswith("File") and key[4:].isdigit() and value:
+            numbered.append((int(key[4:]), Path(ntpath.expandvars(value))))
+    return [path for _, path in sorted(numbered) if path.is_file()]
 
 
 def reference_dir() -> Optional[Path]:

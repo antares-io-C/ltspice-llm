@@ -68,6 +68,10 @@ ltspice-llm/
 │   ├── __init__.py               # Dışa aktarılan modüller ve __version__
 │   ├── adapter.py                # LTspice yürütme motoru, .asc/.net desteği, open_in_gui
 │   ├── cpu_guard.py              # Eşzamanlı LTspice örnekleri için makine geneli iş parçacığı bütçesi
+│   ├── events.py                 # Koşum olayları (süreç başına JSON Lines) ve onlardan kurulan canlı durum
+│   ├── monitor.py                # Canlı monitör: LTspice koşumlarının ve şemalarının yerel web sayfası
+│   ├── monitor_page.py           # Monitörün HTML'i ve betikleri
+│   ├── asc_view.py               # .asc şemasını SVG'ye çizer (semboller .asy kütüphanesinden)
 │   ├── schematic.py              # LTspice .asc şema oluşturucu (AscSchematic) ve pin dönüşümleri
 │   ├── symbols.py                # .asy sembol pinleri (ADI kütüphanesindeki parçalar için get_pin)
 │   ├── netlist.py                # LTspice gerektirmeyen netlist metni yardımcıları (.end, .step, analiz regex'leri)
@@ -374,6 +378,92 @@ sonlanır, çöken LTspice Windows Hata Bildirimi'ni beklemez ve çökme kodu ha
 Aynı `workspace_dir` içinde aynı `circuit_name`'i eşzamanlı kullanan iki çağrı birbirinin dosyalarını ezer; paralel iş akışlarında her biri için ayrı `workspace_dir` verin. `adapter.run_batch(...)` bunu kendisi yapar: her işe ayrı bir alt dizin açar.
 
 LTspice'ı aynı anda birden fazla kez çalıştırmak (iş parçacıklarından, `run_batch` ile, birden fazla ajan ya da ayrı Python süreçlerinden) **güvenlidir**: kilitlenme koruması varsayılan olarak açıktır ve tüm koşumların çözücü iş parçacıklarını makine genelinde çekirdek sayısıyla sınırlar (bkz. [Performans → Kilitlenme koruması](#-performans)).
+
+### Koşumları tarayıcıda canlı izleme
+
+LTspice arayüzsüz çalıştığı için ne yaptığı ekranda görünmez. Olaylar açıkken her `run_netlist` çağrısı (`run_sweep` ve
+`run_batch` içindekiler de) durum değişikliklerini küçük bir JSON Lines dosyasına yazar. Yerel bir sayfa da bunları canlı
+gösterir:
+
+```powershell
+$env:LTSPICE_LLM_EVENTS = '1'      # simülasyonları koşan kabukta ya da ajanda (Bash: export LTSPICE_LLM_EVENTS=1)
+python -m ltspice_llm.monitor      # http://127.0.0.1:8765/   (--open varsayılan tarayıcıda da açar)
+```
+
+Adresi VS Code'un Simple Browser'ında (Ctrl+Shift+P → "Simple Browser: Show"), Edge'de ya da Claude masaüstü
+uygulamasının tarayıcı bölmesinde açın. Sayfa her saniye yenilenir ve şunları gösterir:
+
+- **Çalışan devreler:**
+  - aşama: hazırlanıyor, çekirdek bekliyor, LTspice çalışıyor, takıldı ve yeniden deneniyor, sonuç okunuyor;
+  - zaman aşımı sınırına karşı geçen süre ve çözücü iş parçacığı sayısı;
+  - büyüyen `.raw`'ın boyutu ve `.raw`/`.log`'un son değişiminden beri geçen süre (takılma bekçisinin izlediği sinyal);
+  - LTspice PID'i.
+- **Çekirdek bütçesi:** makine geneli bütçeden kiralanan iş parçacığı sayısı.
+- **Biten koşumlar:**
+  - sonuç, süre ve iş parçacığı sayısı;
+  - LTspice logundan okunan `Maximum thread count` ve `method`;
+  - ölçüm sayısı ve ilk hata ya da uyarı;
+  - tıklanınca logun tamamı.
+
+  Python süreci sonuç yazmadan ölen koşum "yarım kaldı" olarak görünür.
+
+Claude Code'un başlattığı koşumları görmek için kendi `.claude/settings.local.json` dosyanıza (git'e girmez)
+`{"env": {"LTSPICE_LLM_EVENTS": "1"}}` yazın. Deponun ortak `.claude/settings.json` dosyası olayları kütüphane gibi
+kapalı bırakır. Testler olayları kapatır (`tests/conftest.py`).
+
+Olaylar varsayılan olarak kapalıdır. Her süreç kendi dosyasını `LTSPICE_LLM_EVENT_DIR` altına yazar (varsayılan
+`%TEMP%/ltspice_llm_events`). 7 gündür değişmeyen olay dosyaları silinir; klasördeki başka dosyalara dokunulmaz.
+Yazılamayan olay sonucu hiçbir zaman değiştirmez. Komut satırından yalnız betiğin yolu yazılır; gizli bilgi
+taşıyabilen argümanlar yazılmaz. Olay dosyasındaki bozuk bir satır atlanır, sayfayı bozmaz.
+i7-1255U'da (Windows) ölçüm ([examples/23_monitor_and_schematic_checks.py](../examples/23_monitor_and_schematic_checks.py)):
+açıkken olay başına 0,5 ms. Makine yüklüyken alınan başka bir koşumda 1,2 ms. Çekirdek bütçesindeki bir koşum 7 olay
+yazar. Kapalıyken 0,4 µs. Olay türleri ve sırası `ltspice_llm/events.py`'de belgelenmiştir.
+
+Sunucu yalnızca 127.0.0.1'i dinler. `Host` başlığı yerel adres olmayan isteği reddeder (DNS rebinding) ve yalnızca
+olaylarda adı geçen `.log` dosyalarını okur. claude.ai'de yayımlanan bir sayfa (Artifact) bunu canlı gösteremez:
+tarayıcı başka kökenden `127.0.0.1`'e giden isteği engeller, sayfa da yerel dosyalara ulaşamaz.
+
+### Şemaları canlı görüntüleme
+
+Aynı sunucu LTspice şemalarını (`.asc`) ikinci sayfasında, **Şemalar**'da (`/sema`) çizer:
+
+```powershell
+python -m ltspice_llm.monitor --asc C:\circuits --open    # http://127.0.0.1:8765/sema
+```
+
+- `--asc` bir dosya ya da klasör alır (alt klasörler dahil) ve birden çok kez verilebilir. Verilmezse çalışma klasörü ve
+  LTspice'ın kendi çalışma klasörü (`%APPDATA%\LTspice.ini`'deki `WorkingDirectory`) izlenir.
+- Şunlar da listeye girer:
+  - LTspice'ta son açılan şemalar ("Recent Files" listesi; aynı dosyada `[Recent File List]`);
+  - bir koşumun netlist dosyası olarak kullandığı şemalar.
+- Monitörü yeniden başlatmadan başka bir klasörü izletmek için yolunu (ya da tek bir `.asc`'nin yolunu) listenin
+  üstündeki kutuya yapıştırıp "Ekle"ye basın; izlenen klasörün yanındaki × izlemeyi bırakır. Eklenen klasörler
+  `%APPDATA%\ltspice_llm\monitor.json`'a yazılır ve monitör bir sonraki açılışta da izler. Bunları yalnız monitörün
+  kendi sayfası değiştirebilir: istek sayfanın kökenini ve başka bir sitedeki formun koyamayacağı bir başlığı taşımalı.
+- İzlenmeyen bir klasörden LTspice'ta açılan dosya kendiliğinden görünmez. LTspice dosyayı açınca son açılanlar
+  listesini diske yazmıyor (ölçüm: açtıktan altı saniye sonra ayar dosyası değişmemişti); klasörü ekleyin.
+- Liste en yeniden eskiye sıralıdır. "En son kaydedilen şemayı göster" açıkken sayfa en son kaydedilen şemaya geçer.
+- Çizim kayıttan sonraki bir saniye içinde yenilenir: LTspice'ta Ctrl+S ya da `AscSchematic.save` / `write_asc_file`.
+  Yakınlaştırma ve kaydırma korunur.
+- Tekerlek yakınlaştırır, sürükleme kaydırır, çift tıklama çizimi sığdırır.
+
+`ltspice_llm.asc_view.render_asc(yol)` aynı çizimi SVG metni olarak döner (`standalone=True` kendi açık/koyu tema
+stilini ekler). Rapora ya da yayımlanacak bir sayfaya konabilir. Çizimin kuralları:
+
+- **Semboller:** LTspice'ın sırasıyla aranır: şemanın klasörü ve alt klasörleri, LTspice kullanıcı klasörü, ADI
+  kütüphanesi. Bulunamayan sembol kesikli kutu olarak çizilir ve uyarıda adı yazılır.
+- **Koordinatlar:** döndürme ve aynalama `AscSchematic.get_pin`'inkiyle aynıdır (ADI SCHEMATIC-REFERENCE "Pin
+  World-Coordinate Calculation").
+- **Etiketler:** öznitelik yazıları sembolle döner ama baş aşağı okunmaz.
+- **Yaylar:** başlangıç ışınından bitiş ışınına saat yönünün tersine çizilir. ADI belgesi yönü vermiyor; kütüphanedeki
+  bobin ve polarize kondansatör yalnızca bu yönle şeklini alıyor.
+- **Kavşak noktaları:** üç ya da daha çok kablo ucunun buluştuğu yere konur; ortasından geçilen kablo iki sayılır.
+  LTspice 26.1.1 böyle bir T'yi ve eğik kablonun ortasına inen ucu bağlar, yalnızca kesişen iki kabloyu bağlamaz
+  ([examples/23](../examples/23_monitor_and_schematic_checks.py)).
+- **Yazı boyutları:** yaklaşıktır.
+
+LTspice 26.1.1 ile gelen 4334 örnek şemanın hepsi hatasız, bozuk SVG'siz ve eksik sembolsüz çiziliyor: şema başına
+medyan 17 ms, %99'luk dilim 77 ms (i7-1255U, examples/23).
 
 ---
 

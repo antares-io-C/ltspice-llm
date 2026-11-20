@@ -1,5 +1,49 @@
 # Değişiklik Günlüğü
 
+## 1.8.0 — 2026-11-20
+
+Yeni (2026-11-19):
+
+- Canlı LTspice monitörü (`python -m ltspice_llm.monitor`, `ltspice_llm.events`): `LTSPICE_LLM_EVENTS=1` iken her
+  `run_netlist` (`run_sweep`/`run_batch` içindekiler de) durum geçişlerini süreç başına bir JSON Lines dosyasına yazar.
+  Yerel sayfada (127.0.0.1:8765) çalışan devreler (aşama, iş parçacığı, büyüyen `.raw`, son değişim), çekirdek bütçesi
+  ve biten koşumlar (logdan `Maximum thread count` ve `method`, ilk hata, tıklanınca log) görünür. Ölen sürecin
+  koşumu "yarım kaldı" olur. Olaylar varsayılan kapalı; yazma hatası sonucu değiştirmez. 7 günlük saklama süresi yalnız
+  olay dosyalarına (`<pid>-<ms>.jsonl`) uygulanır: `LTSPICE_LLM_EVENT_DIR` kullanıcının kendi `.jsonl` verisinin durduğu
+  bir klasörse o dosyalar silinmez. i7-1255U'da açıkken olay başına 0,5 ms (makine yüklüyken 1,2 ms), kapalıyken 0,4 µs
+  (examples/23). Olay dosyasına komut satırından yalnız betiğin yolu yazılır: argümanlar gizli bilgi taşıyabilir. Olay
+  dosyası dış girdi sayılır: bozuk satır (sonlu sayı olmayan ya da uç zaman, `NaN`/`Infinity`/taşan sayı, liste olmayan
+  `argv`, NUL içeren, UTF-16'da 32767 birimi aşan, adı boş ya da Linux'ta kodlanamayan yol, metin olmayan `source`,
+  imkânsız PID ya da kira) yalnız kendisi düşer, sayfayı bozmaz. Sunucu yanıtı ASCII kaçışlı JSON'dur: Linux'ta UTF-8
+  olmayan dosya adı da sayfayı bozmaz. Sayfanın bağlantıya koyamayacağı (eşleşmemiş vekilli) yol gönderilmez ve
+  listelenmez; sayfa betiği bir satırı çizemese de yoklamayı sürdürür. Kendi yazarımız sonlu olmayan ayarı (ör.
+  `stall_timeout=float("inf")`) null yazar. Deponun
+  ortak `.claude/settings.json`'ı olayları kütüphane gibi kapalı bırakır; Claude Code'un koşumlarını görmek isteyen
+  `LTSPICE_LLM_EVENTS=1`'i kendi `.claude/settings.local.json`'ına (git'e girmez) yazar. Testler olayları kapatır.
+  SECURITY.md monitörün neye karşı korunduğunu (web sayfaları: `Host`, `Origin`, CSP) ve neyin kapsam dışı olduğunu
+  (aynı bilgisayardaki diğer kullanıcılar) yazar.
+- Şema görüntüleme (`ltspice_llm.asc_view`, monitörün `/sema` sayfası): `.asc` şeması semboller `.asy`
+  kütüphanesinden okunarak SVG'ye çizilir. Bu çizim kabloları, toprak ve ağ etiketlerini, öznitelikleri, pin adlarını,
+  yorum ve komutları ve kavşak noktalarını içerir. `python -m ltspice_llm.monitor --asc <klasör>` izlenen klasördeki,
+  LTspice'ta son açılan ve koşulan şemaları listeler; kaydedilen şemayı bir saniye içinde yeniden çizer. `--asc`
+  verilmezse çalışma klasörü ve LTspice'ın çalışma klasörü izlenir (`reference.ltspice_working_dir`,
+  `ltspice_recent_files`). Sayfadaki "Ekle" kutusu monitörü yeniden başlatmadan klasör ya da `.asc` ekler, × bırakır;
+  eklenenler `%APPDATA%\ltspice_llm\monitor.json`'da saklanır. Bu POST isteğini yalnız monitörün kendi sayfası
+  gönderebilir: `Origin` ve `X-LTspice-Monitor` başlığı denetlenir. LTspice 26.1.1'in 4334 örnek
+  şeması hatasız ve eksik sembolsüz çiziliyor (medyan 17 ms). Kavşak kuralı (ortasından geçilen kablo iki sayılır)
+  LTspice 26.1.1'in netlisteriyle ölçüldü: bölünmemiş T ve eğik kablonun ortasına inen uç bağlanır, ucu olmayan
+  kesişme bağlanmaz (examples/23).
+
+Düzeltildi (2026-11-19):
+
+- Monitör: aynı saat adımında biten koşumlar en yeni önce listelenir (Windows'ta Python 3.13 öncesi `time.time()` 15,6 ms
+  adımla ilerler, iki koşum aynı zamanı alabilir; eşitlikte bitiş olaylarının okuma sırası belirler). Linux'ta büyük harfli `.ASC`
+  listeleniyor ama çizilmiyordu (çizim izni harfe duyarlıydı, tarama değil).
+- `scripts/mutants.py`: 1.7.0'daki `compare` düzeltmesi büyük/küçük harf katlamasını `_fold_token`'a taşıyınca iki
+  mutantın değiştireceği metin koddan kalkmıştı; haftalık iş 2026-11-16'da bu yüzden kırmızıydı (614/616, `ESKİ`).
+  İkisi aynı anlamla yeni metne taşındı. Monitörün sonradan değişen iki satırı ve `ltspice_working_dir`'in
+  `UserCmpDir` aramasıyla aynı satırı taşıması üç mutantı daha eskitiyordu; onlar da taşındı.
+
 ## 1.7.0 — 2026-11-14
 
 Yeni (2026-11-13):

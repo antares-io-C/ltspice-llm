@@ -5,6 +5,10 @@ Kilitlenme korumasının (``cpu_guard``) makine geneli kilit dosyaları testlerd
 her test oturumu kendi kilit dizinini kullanır. Böylece testler, aynı anda gerçek LTspice koşturan başka
 bir süreci beklemez ve onun bütçesini de tüketmez.
 
+Koşum olayları (``ltspice_llm.events``) testlerde kapalıdır ve dizinleri oturuma özeldir: geliştiricinin kabuğundaki
+``LTSPICE_LLM_EVENTS=1`` ne monitörüne test koşumlarını yazdırır ne de use case izinin çağrı dizisini değiştirir. Olayları
+sınayan test ikisini kendi ``tmp_path``'ine kurar.
+
 Hypothesis: ``dev`` profili süre sınırı koymaz (LTspice koşarken makine yüklüyken rastgele kırılmasın);
 ``HYPOTHESIS_PROFILE=ci`` daha çok örnek dener.
 """
@@ -15,7 +19,7 @@ import pytest
 from hypothesis import settings
 
 import flowtrace
-from ltspice_llm import cpu_guard
+from ltspice_llm import cpu_guard, events
 
 settings.register_profile("dev", deadline=None)
 settings.register_profile("ci", max_examples=1000, deadline=None)
@@ -43,5 +47,14 @@ def _isolated_cpu_slot_dir(tmp_path_factory):
     mp = pytest.MonkeyPatch()
     mp.setenv(cpu_guard.ENV_SLOT_DIR, str(tmp_path_factory.mktemp("cpu_slots")))
     mp.delenv(cpu_guard.ENV_CPU_BUDGET, raising=False)
+    yield
+    mp.undo()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_event_dir(tmp_path_factory):
+    mp = pytest.MonkeyPatch()
+    mp.delenv(events.ENV_EVENTS, raising=False)
+    mp.setenv(events.ENV_EVENT_DIR, str(tmp_path_factory.mktemp("events")))
     yield
     mp.undo()

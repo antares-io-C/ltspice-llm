@@ -68,6 +68,10 @@ ltspice-llm/
 │   ├── __init__.py               # Exported modules and __version__
 │   ├── adapter.py                # LTspice execution engine, .asc/.net support, open_in_gui
 │   ├── cpu_guard.py              # Machine-wide solver-thread budget for concurrent LTspice instances
+│   ├── events.py                 # Run events (JSON Lines per process) and the live state built from them
+│   ├── monitor.py                # Live monitor: local web page of LTspice runs and schematics
+│   ├── monitor_page.py           # The monitor's HTML and scripts
+│   ├── asc_view.py               # Draws an .asc schematic as SVG (symbols from the .asy library)
 │   ├── schematic.py              # LTspice .asc schematic builder (AscSchematic) and pin transforms
 │   ├── symbols.py                # .asy symbol pins (get_pin for parts in the ADI library)
 │   ├── netlist.py                # Netlist text helpers that do not need LTspice (.end, .step, analysis regexes)
@@ -372,6 +376,66 @@ On Windows, LTspice processes are in a job object tied to the Python process: ho
 Two calls that use the same `circuit_name` at the same time in the same `workspace_dir` overwrite each other's files; for parallel workflows give each its own `workspace_dir`. `adapter.run_batch(...)` does this itself: it opens a separate subdirectory for each job.
 
 Running LTspice several times at the same time (from threads, with `run_batch`, from several agents or separate Python processes) is **safe**: the livelock protection is on by default and limits the solver threads of all runs to the core count machine-wide (see [Performance → Livelock protection](#-performance)).
+
+### Watching runs live in a browser
+
+LTspice runs headless, so nothing on screen shows what it is doing. With events switched on, every `run_netlist` call (also the ones inside `run_sweep` and `run_batch`) writes its state changes to a small JSON Lines file, and a local page shows them live:
+
+```powershell
+$env:LTSPICE_LLM_EVENTS = '1'      # in the shell or agent that runs the simulations (Bash: export LTSPICE_LLM_EVENTS=1)
+python -m ltspice_llm.monitor      # http://127.0.0.1:8765/   (--open also opens the default browser)
+```
+
+Open the address in VS Code's Simple Browser (Ctrl+Shift+P → "Simple Browser: Show"), in Edge, or in the browser pane of the Claude desktop app. The page refreshes every second and shows:
+
+- **Running circuits:**
+  - the stage: preparing, waiting for cores, LTspice running, stalled and retrying, or reading results;
+  - elapsed time against the timeout, and solver threads;
+  - the size of the growing `.raw`, and the time since `.raw`/`.log` last changed (the signal the stall watchdog watches);
+  - the LTspice PID.
+- **Core budget:** threads leased out of the machine-wide budget.
+- **Finished runs:**
+  - the result, duration and threads;
+  - `Maximum thread count` and `method` read from the LTspice log;
+  - the number of measurements and the first error or warning;
+  - the full log on click.
+
+  A run whose Python process died before writing a result is shown as abandoned.
+
+To see the runs that Claude Code starts, put `{"env": {"LTSPICE_LLM_EVENTS": "1"}}` in your own `.claude/settings.local.json`, which is not committed. The repository's shared `.claude/settings.json` leaves events off, as the library does. The tests switch events off (`tests/conftest.py`).
+
+Events are off by default. Each process writes its own file under `LTSPICE_LLM_EVENT_DIR` (default `%TEMP%/ltspice_llm_events`). Event files untouched for 7 days are deleted; other files in that folder are left alone. A failed write never changes a result. Only the script's path is written, not its command-line arguments, which can carry secrets. A malformed line in an event file is skipped and never breaks the page. Measured on an i7-1255U (Windows, [examples/23_monitor_and_schematic_checks.py](../examples/23_monitor_and_schematic_checks.py)): 0.5 ms per event when on, 1.2 ms in another run while the machine was busy. A run under the core budget writes 7 events. Off: 0.4 µs. The event kinds and their order are documented in `ltspice_llm/events.py`.
+
+The server listens on 127.0.0.1 only. It refuses requests whose `Host` header is not a local address (DNS rebinding), and it reads only the `.log` files named in events. A page published on claude.ai (an Artifact) cannot show this live: the browser blocks requests from another origin to `127.0.0.1`, and the page cannot reach local files.
+
+### Viewing schematics live
+
+The same server draws LTspice schematics (`.asc`) on its second page, **Şemalar** (`/sema`):
+
+```powershell
+python -m ltspice_llm.monitor --asc C:\circuits --open    # http://127.0.0.1:8765/sema
+```
+
+- `--asc` takes a file or a folder, subfolders included, and can be given more than once. Without it, the working folder and LTspice's own working folder (`WorkingDirectory` in `%APPDATA%\LTspice.ini`) are watched.
+- These also appear in the list:
+  - schematics opened recently in LTspice (the "Recent Files" list, `[Recent File List]` in the same file);
+  - schematics that a run used as its netlist file.
+- To watch another folder without restarting, paste its path (or one `.asc` file's) into the box above the list and press "Ekle"; × next to a watched folder stops watching it. Added folders are saved in `%APPDATA%\ltspice_llm\monitor.json` and watched again the next time the monitor starts. Only the monitor's own page can change them: the request must carry the page's origin and a header that a form on another site cannot set.
+- A file opened in LTspice from an unwatched folder does not show up by itself. LTspice does not write its recent-files list when it opens a file (measured: the settings file was unchanged six seconds after opening), so add the folder.
+- The list is newest first. With "En son kaydedilen şemayı göster" on, the page switches to the schematic saved last.
+- The drawing reloads within a second of a save: Ctrl+S in LTspice, or `AscSchematic.save` / `write_asc_file`. Zoom and pan are kept.
+- Wheel zooms, dragging pans, and a double click fits the drawing.
+
+`ltspice_llm.asc_view.render_asc(path)` returns the same drawing as an SVG string (`standalone=True` adds its own light and dark styles), for a report or a published page. The drawing:
+
+- **Symbols:** looked up the way LTspice does: the schematic's folder and its subfolders, the LTspice user folder, then the ADI library. A symbol that cannot be found is drawn as a dashed box and named in a warning.
+- **Coordinates:** the rotations and mirrors are the ones `AscSchematic.get_pin` uses (ADI SCHEMATIC-REFERENCE "Pin World-Coordinate Calculation").
+- **Labels:** attribute texts turn with the symbol but never read upside down.
+- **Arcs:** drawn counterclockwise from the start ray to the end ray. The ADI reference does not give the direction; it is the only one under which the library's inductor and polarized capacitor take their shape.
+- **Junction dots:** placed where three or more wire ends meet; a wire that passes through counts as two. LTspice 26.1.1 connects such a T and a wire end on the middle of a slanted wire, but not two wires that only cross ([examples/23](../examples/23_monitor_and_schematic_checks.py)).
+- **Text sizes:** an approximation.
+
+All 4334 example schematics that come with LTspice 26.1.1 draw without an error, a malformed SVG or a missing symbol: median 17 ms each, 99th percentile 77 ms (i7-1255U, examples/23).
 
 ---
 

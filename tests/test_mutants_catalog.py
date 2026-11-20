@@ -53,6 +53,26 @@ def test_the_weekly_survivors_are_the_data_dependent_mutants(mutants):
     assert set(mutants.NEEDS_LTSPICE_DATA) == WEEKLY_SURVIVORS
 
 
+def test_every_mutant_text_occurs_exactly_once_in_its_file(mutants):
+    """``mutants.main`` mutantın metnini dosyasında tam bir kez arar; değilse ``ESKİ`` der ve haftalık iş kırmızı olur.
+    Bu yalnız haftalık işte görünüyordu: 2026-11-16 koşumu (Actions 43852029027) iki eski ``compare`` mutantıyla
+    kırmızıydı (614/616) ve üç gün fark edilmedi. Kod değişince katalog hızlı kapıda kırılsın (metin ``read_text`` ile
+    okunur, ``main``'deki gibi)."""
+    texts = {}
+    stale = []
+    for path, old, _new, label, _tests in mutants.MUTANTS:
+        # main metni make_copy()'nin kopyasından okur: kopyaya girmeyen dosyada FileNotFoundError ile dururdu
+        if not (path in mutants.COPY_FILES or any(path.startswith(d + "/") for d in mutants.COPY_DIRS)):
+            stale.append((path, label, "kopyada yok"))
+            continue
+        if path not in texts:
+            target = ROOT / path
+            texts[path] = target.read_text(encoding="utf-8") if target.is_file() else ""
+        if texts[path].count(old) != 1:
+            stale.append((path, label, texts[path].count(old)))
+    assert stale == []
+
+
 def test_every_data_dependent_label_exists_once_in_the_catalog(mutants):
     """Etiket katalogda değişirse koruma sessizce düşer ve mutant yine sağ kalmış görünür."""
     labels = [m[3] for m in mutants.MUTANTS]

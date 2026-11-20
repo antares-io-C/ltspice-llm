@@ -69,7 +69,7 @@ from .parasitics import (
     mlcc_dc_bias_derating,
 )
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 __all__ = [
     "LTSpiceAdapter",
     "SimulationResult",

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ctypes
 import functools
+import inspect
 import logging
 import math
 import os
@@ -26,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
+from . import events
 from .cpu_guard import CpuLease, CpuSlotPool, CpuSlotTimeout, available_cpus, default_pool, ltspice_thread_limit
 from .diagnostics import SPICEDiagnostics
 from .netlist import (
@@ -787,6 +789,34 @@ def _live_runs() -> Set[Tuple[str, str]]:
     return live
 
 
+def _emits_run_events(method: Any) -> Any:
+    """
+    ``run_netlist``'i bir koşum olarak işaretler (`events.RunScope`): başlangıçta ``run_start``, sonuçla ya da istisnayla
+    ``run_end``. Olay yazımı kapalıyken (varsayılan) yalnızca `events.enabled` sorulur.
+    """
+    signature = inspect.signature(method)
+
+    @functools.wraps(method)
+    def wrapper(self: "LTSpiceAdapter", *args: Any, **kwargs: Any) -> "SimulationResult":
+        if not events.enabled():
+            return method(self, *args, **kwargs)
+        try:
+            call = signature.bind(self, *args, **kwargs)
+        except TypeError:  # yanlış çağrı: olay yazılmaz, hata özgün haliyle yükselir
+            return method(self, *args, **kwargs)
+        call.apply_defaults()
+        source = call.arguments["netlist_content_or_path"]
+        is_file = self._looks_like_path(source, call.arguments["treat_as_text"])
+        with events.RunScope(circuit=str(call.arguments["circuit_name"]), workspace=str(self.workspace_dir),
+                             source=str(Path(source).resolve()) if is_file else None,
+                             timeout=call.arguments["timeout"] or self.default_timeout,
+                             guard=bool(self.cpu_guard), stall=self.stall_timeout) as scope:
+            scope.result = method(self, *args, **kwargs)
+            return scope.result
+
+    return wrapper
+
+
 class LTSpiceAdapter:
     """
     LTspice ile LLM'ler arasında köprü oluşturan ana adaptör sınıfı.
@@ -936,6 +966,7 @@ class LTSpiceAdapter:
         """
         return self.raw_format == "ascii"
 
+    @_emits_run_events
     def run_netlist(
         self,
         netlist_content_or_path: Union[str, Path],
@@ -1083,6 +1114,7 @@ class LTSpiceAdapter:
                                f"threads={threads or 'varsayılan'}); koşum durduruldu")
                     if lease is not None:
                         lease.release()
+                        events.emit("cpu_release", threads=lease.threads)
                     lease = None
                     for stale in (log_path, raw_path):
                         if stale.exists():
@@ -1104,6 +1136,7 @@ class LTSpiceAdapter:
         finally:
             if lease is not None:
                 lease.release()
+                events.emit("cpu_release", threads=lease.threads)
         # LTspice verilen sayıyı mantıksal çekirdek sayısına kırpar
         return errors, (min(ran, ltspice_thread_limit()) if ran is not None else None)
 
@@ -1235,7 +1268,9 @@ class LTSpiceAdapter:
         wait = self.slot_wait_timeout if self.slot_wait_timeout is not None else max(60.0, 2.0 * run_timeout)
         # Sıra beklemek zorunda kalan koşum makineyi tek başına kapmak yerine adil bir pay ister
         share = None if exact else max(1, cpus // self.DEFAULT_BATCH_WORKERS)
+        events.emit("cpu_request", want=want)
         lease = pool.acquire(want, minimum=want if exact else 1, wait_timeout=wait, contended_want=share)
+        events.emit("cpu_lease", threads=lease.threads, waited=round(lease.waited_seconds, 3), budget=pool.size)
         if lease.waited_seconds >= 1.0:
             notes.append(
                 f"Diğer LTspice koşumlarının çekirdekleri bırakması için {lease.waited_seconds:.1f} sn beklendi."
@@ -1277,12 +1312,15 @@ class LTSpiceAdapter:
             launched = True
             _assign_to_job(process)
             started = time.monotonic()
+            events.emit("ltspice_start", ltspice_pid=process.pid, netlist=cmd[-1])
+            timed_out = False
             last_signature: Any = object()
             last_change = started
             stderr = ""
             while True:
                 remaining = run_timeout - (time.monotonic() - started)
                 if remaining <= 0:
+                    timed_out = True
                     errors.append(
                         f"Simülasyon zaman aşımına uğradı ({run_timeout} saniye). Devre yakınsamıyor olabilir."
                     )
@@ -1310,6 +1348,8 @@ class LTSpiceAdapter:
                         self._kill_process_tree(process)
                         break
             crash = _crash_description(process.returncode)
+            events.emit("ltspice_exit", outcome="stalled" if stalled else "timeout" if timed_out else "exited",
+                        returncode=process.returncode, seconds=round(time.monotonic() - started, 3), crash=crash)
             if crash and not errors:
                 errors.append(f"{crash} stderr: {stderr.strip()}" if stderr and stderr.strip() else crash)
             elif process.returncode != 0 and stderr and not errors:
