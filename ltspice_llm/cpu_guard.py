@@ -293,16 +293,17 @@ class CpuSlotPool:
         want = max(1, min(int(want), self.size))
         minimum = max(1, min(int(minimum), want))
         shared = want if contended_want is None else max(minimum, min(want, int(contended_want)))
-        started = time.monotonic()
+        # koşumun elapsed_seconds'ıyla aynı saat (perf_counter): Windows'ta Python 3.13'ten önce monotonic 15,6 ms adımlıdır
+        started = time.perf_counter()
         delay = 0.02
         take = want
         while True:
             held = self._try_take(take)
             if len(held) >= minimum:
-                return CpuLease(held, waited_seconds=time.monotonic() - started, gate=self._enter_gate)
+                return CpuLease(held, waited_seconds=time.perf_counter() - started, gate=self._enter_gate)
             for fd in held:
                 _unlock(fd)
-            waited = time.monotonic() - started
+            waited = time.perf_counter() - started
             if wait_timeout is not None and waited >= wait_timeout:
                 raise CpuSlotTimeout(
                     f"{wait_timeout:g} sn içinde {minimum} çekirdek yuvası boşalmadı "

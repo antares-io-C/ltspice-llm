@@ -9,6 +9,7 @@ süreci gerçek LTspice 26.1.1 kaydını (``tests/data/ref26_flow_rc.*``, exampl
 import contextlib
 import http.client
 import json
+import math
 import os
 import re
 import subprocess
@@ -16,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -292,6 +294,50 @@ def test_time_spent_waiting_for_cores_is_written(tmp_path, ltspice, event_files,
     evts = _read(event_files)
     (lease,) = [e for e in evts if e["kind"] == "cpu_lease"]
     # saniye cinsinden: koşumun süresi (kiradan önce başlar) bekleyişi kapsar
+    assert 0.25 <= lease["waited"] <= evts[-1]["elapsed"]
+
+
+def _coarse_monotonic(monkeypatch, tick=1.0):
+    """Windows'ta Python 3.13'ten önce ``time.monotonic`` GetTickCount64'tür ve 15,6 ms adımla ilerler; ``perf_counter``
+    (QueryPerformanceCounter) her sürümde hassastır (Python 3.13 "What's New"). Saat gerçek bir sınırdır: ``adapter`` ve
+    ``cpu_guard`` modüllerinin gördüğü ``time`` aynı kalır, yalnız ``monotonic`` ``tick`` adımlı (yukarı yuvarlanan) olur;
+    1 sn'lik adım farkı her koşumda görünür kılar."""
+    coarse = types.SimpleNamespace(**{name: getattr(time, name) for name in dir(time) if not name.startswith("_")})
+    coarse.monotonic = lambda: math.ceil(time.perf_counter() / tick) * tick
+    monkeypatch.setattr(adapter_mod, "time", coarse)
+    monkeypatch.setattr(guard, "time", coarse)
+
+
+def test_ltspice_duration_shares_the_run_clock_when_monotonic_is_coarse(tmp_path, ltspice, event_files, monkeypatch):
+    """CI Windows/Python 3.12'de LTspice'ın süresi (``monotonic``) koşumunkinden (``perf_counter``) uzun çıktı: 0,313 >
+    0,303 (Actions 44707078932, `test_timeout_without_guard_has_no_cpu_events`). İç içe iki aralık aynı saatle ölçülünce
+    "LTspice'ın süresi koşumunkini aşamaz" ve zaman aşımının alt sınırı kesin tutar; kaba ``monotonic`` sonucu
+    değiştirmemeli."""
+    _coarse_monotonic(monkeypatch)
+    ltspice.script = ["stuck"]
+    _adapter(tmp_path, cpu_guard=False, stall_timeout=None, default_timeout=0.3).run_netlist(
+        RC, circuit_name="t", treat_as_text=True)
+    evts = _read(event_files)
+    (exit_,), end = [e for e in evts if e["kind"] == "ltspice_exit"], evts[-1]
+    assert exit_["outcome"] == "timeout"
+    assert 0.3 <= exit_["seconds"] <= end["elapsed"]
+
+
+def test_core_wait_shares_the_run_clock_when_monotonic_is_coarse(tmp_path, ltspice, event_files, four_cpus,
+                                                                  monkeypatch):
+    """`test_time_spent_waiting_for_cores_is_written` kaba ``monotonic``'le: bekleme (``cpu_guard``) ve koşum süresi aynı
+    saatle ölçülmeli. Yoksa 1 sn adımlı saatte bekleme 0 ya da 1 sn çıkar ve iki sınırdan biri bozulur."""
+    _coarse_monotonic(monkeypatch)
+    pool = _pool(tmp_path, 4)
+    other = CpuSlotPool(size=4, directory=pool.directory).acquire(4)
+    releaser = threading.Timer(0.3, other.release)
+    releaser.start()
+    try:
+        _adapter(tmp_path, cpu_guard=pool).run_netlist(RC, circuit_name="w", treat_as_text=True)
+    finally:
+        releaser.join()
+    evts = _read(event_files)
+    (lease,) = [e for e in evts if e["kind"] == "cpu_lease"]
     assert 0.25 <= lease["waited"] <= evts[-1]["elapsed"]
 
 

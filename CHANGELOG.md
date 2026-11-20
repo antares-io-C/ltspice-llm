@@ -36,6 +36,10 @@ Yeni (2026-11-19):
 
 Düzeltildi (2026-11-19):
 
+- Süreler tek saatle (2026-11-20): LTspice'ın süresi, zaman aşımı/takılma bekçisi ve çekirdek beklemesi koşumun
+  `elapsed_seconds`'ıyla aynı saatle (`time.perf_counter`) ölçülür. Windows'ta Python 3.13'ten önce `time.monotonic`
+  15,6 ms adımlıdır (GetTickCount64); CI'ın Windows/Python 3.12 işinde LTspice'ın süresi koşumunkinden uzun çıktı
+  (0,313 > 0,303).
 - Monitör: aynı saat adımında biten koşumlar en yeni önce listelenir (Windows'ta Python 3.13 öncesi `time.time()` 15,6 ms
   adımla ilerler, iki koşum aynı zamanı alabilir; eşitlikte bitiş olaylarının okuma sırası belirler). Linux'ta büyük harfli `.ASC`
   listeleniyor ama çizilmiyordu (çizim izni harfe duyarlıydı, tarama değil).

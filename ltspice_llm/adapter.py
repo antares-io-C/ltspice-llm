@@ -1311,14 +1311,16 @@ class LTSpiceAdapter:
             )
             launched = True
             _assign_to_job(process)
-            started = time.monotonic()
+            # koşumun elapsed_seconds'ıyla aynı saat: Windows'ta Python 3.13'ten önce monotonic 15,6 ms adımlıdır
+            # (GetTickCount64) ve LTspice'ın süresi koşumunkinden uzun görünürdü; perf_counter her sürümde QPC
+            started = time.perf_counter()
             events.emit("ltspice_start", ltspice_pid=process.pid, netlist=cmd[-1])
             timed_out = False
             last_signature: Any = object()
             last_change = started
             stderr = ""
             while True:
-                remaining = run_timeout - (time.monotonic() - started)
+                remaining = run_timeout - (time.perf_counter() - started)
                 if remaining <= 0:
                     timed_out = True
                     errors.append(
@@ -1334,7 +1336,7 @@ class LTSpiceAdapter:
                 except subprocess.TimeoutExpired:
                     if not stall_timeout:
                         continue
-                    now = time.monotonic()
+                    now = time.perf_counter()
                     signature = tuple(_file_signature(p) for p in watch_paths)
                     if signature != last_signature:
                         last_signature, last_change = signature, now
@@ -1349,7 +1351,7 @@ class LTSpiceAdapter:
                         break
             crash = _crash_description(process.returncode)
             events.emit("ltspice_exit", outcome="stalled" if stalled else "timeout" if timed_out else "exited",
-                        returncode=process.returncode, seconds=round(time.monotonic() - started, 3), crash=crash)
+                        returncode=process.returncode, seconds=round(time.perf_counter() - started, 3), crash=crash)
             if crash and not errors:
                 errors.append(f"{crash} stderr: {stderr.strip()}" if stderr and stderr.strip() else crash)
             elif process.returncode != 0 and stderr and not errors:

@@ -2168,6 +2168,12 @@ MUTANTS = [
      "eski hata: 4300 basamaklı kiraların toplamı JSON'a yazılamaz, yanıt düşer", ["tests/test_events.py"]),
     ("ltspice_llm/monitor.py", "    if not 0 < pid <= 0xFFFFFFFF:", "    if pid <= 0:",
      "eski hata: DWORD'ü aşan PID Windows'ta maskelenir, başka bir süreç yaşıyor sayılır", ["tests/test_events.py"]),
+    # --- CI 2026-11-20 (Actions 44707078932, Windows/3.12): süreler koşumun saatiyle (perf_counter) ölçülür
+    ("ltspice_llm/adapter.py", "seconds=round(time.perf_counter() - started, 3)", "seconds=round(time.monotonic() - started, 3)",
+     "eski hata: LTspice'ın süresi başka saatle ölçülür, Windows 3.12'de koşumunkinden uzun çıkar", ["tests/test_events.py"]),
+    ("ltspice_llm/cpu_guard.py", "waited_seconds=time.perf_counter() - started",
+     "waited_seconds=time.monotonic() - started",
+     "eski hata: çekirdek beklemesi başka saatle ölçülür, koşumun süresini aşabilir", ["tests/test_events.py"]),
 ]
 
 
